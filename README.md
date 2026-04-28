@@ -17,15 +17,23 @@ This CLI tool scrapes your public IMDb watchlist and serves it in a JSON format 
    python imdb_server.py --port 8080
    ```
 
-### Docker Setup
-1. **Build the Image**:
-   ```bash
-   docker build -t imdb-watchlist-server .
+### Docker Compose Setup
+1. **Create `docker-compose.yml`**:
+   ```yaml
+   services:
+     imdb-server:
+       image: registry.shifamily.com/homestack/imdb-watchlist-server:latest
+       container_name: imdb-server
+       ports:
+         - "8080:8080"
+       volumes:
+         - ./watchlist_cache.json:/app/watchlist_cache.json
+       restart: unless-stopped
    ```
 
-2. **Run the Container**:
+2. **Start the Stack**:
    ```bash
-   docker run -d -p 8080:8080 --name imdb-server imdb-watchlist-server
+   docker compose up -d
    ```
 
 3. **Pre-cache your watchlist** (optional):

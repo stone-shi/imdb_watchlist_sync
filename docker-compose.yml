@@ -1,0 +1,14 @@
+services:
+  imdb-server:
+    image: registry.shifamily.com/homestack/imdb-watchlist-server:latest
+    container_name: imdb-server
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./watchlist_cache.json:/app/watchlist_cache.json
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
