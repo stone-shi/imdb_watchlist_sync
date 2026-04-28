@@ -119,6 +119,9 @@ def scrape_imdb_watchlist(user_id: str):
                     year = year_node.get('year')
                 elif year_node:
                     year = str(year_node)
+                
+                type_node = node.get('titleType', {})
+                title_type = type_node.get('id') if isinstance(type_node, dict) else str(type_node)
                     
                 if imdb_id:
                     items.append({
@@ -126,8 +129,9 @@ def scrape_imdb_watchlist(user_id: str):
                         "imdb": imdb_id,
                         "imdbId": imdb_id,
                         "imdb_id": imdb_id,
-                        "tmdbId": None, # Radarr sometimes likes this present
-                        "year": year
+                        "tmdbId": None,
+                        "year": year,
+                        "type": title_type # e.g., 'movie', 'tvSeries', 'tvMiniSeries'
                     })
             
             logger.info(f"Successfully scraped {len(items)} items from IMDb for {user_id}.")
@@ -234,11 +238,17 @@ def search_cache(q: str = Query(..., description="Search query")):
 
 @app.get("/radarr")
 def get_radarr_list(background_tasks: BackgroundTasks, user_id: str = Query(...), force: bool = False):
-    return get_watchlist(background_tasks, user_id, force)
+    items = get_watchlist(background_tasks, user_id, force)
+    # Filter for movies
+    movie_types = ['movie', 'tvMovie', 'video']
+    return [i for i in items if i.get('type') in movie_types or i.get('type') is None]
 
 @app.get("/sonarr")
 def get_sonarr_list(background_tasks: BackgroundTasks, user_id: str = Query(...), force: bool = False):
-    return get_watchlist(background_tasks, user_id, force)
+    items = get_watchlist(background_tasks, user_id, force)
+    # Filter for TV shows
+    tv_types = ['tvSeries', 'tvMiniSeries', 'tvSpecial', 'tvShort']
+    return [i for i in items if i.get('type') in tv_types]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="IMDb Watchlist Server for *arr")
