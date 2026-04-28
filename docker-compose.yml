@@ -5,7 +5,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./watchlist_cache.json:/app/watchlist_cache.json
+      - ./data:/app/data
     restart: unless-stopped
     logging:
       driver: "json-file"

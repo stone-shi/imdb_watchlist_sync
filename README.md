@@ -27,7 +27,7 @@ This CLI tool scrapes your public IMDb watchlist and serves it in a JSON format 
        ports:
          - "8080:8080"
        volumes:
-         - ./watchlist_cache.json:/app/watchlist_cache.json
+         - ./data:/app/data
        restart: unless-stopped
    ```
 

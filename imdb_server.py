@@ -29,8 +29,8 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Global cache
-WATCHLIST_CACHE = {}
-CACHE_FILE = "watchlist_cache.json"
+CACHE_DIR = "data"
+CACHE_FILE = os.path.join(CACHE_DIR, "watchlist_cache.json")
 
 def get_user_id(input_str: str) -> str:
     """Extracts user ID from URL or returns the ID as is."""
@@ -150,6 +150,9 @@ def scrape_imdb_watchlist(user_id: str):
         return None
 
 def load_cache():
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+        
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
@@ -159,6 +162,8 @@ def load_cache():
     return {}
 
 def save_cache(cache):
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
     with open(CACHE_FILE, 'w') as f:
         json.dump(cache, f)
 
