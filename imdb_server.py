@@ -172,7 +172,16 @@ def save_cache(cache):
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "info": "IMDb Watchlist Server for *arr"}
+    return {
+        "status": "online", 
+        "info": "IMDb Watchlist Server for *arr",
+        "endpoints": {
+            "/radarr?user_id=...": "Radarr compatible JSON list",
+            "/sonarr?user_id=...": "Sonarr compatible JSON list",
+            "/stats": "Get cache statistics",
+            "/search?q=...": "Search across all cached watchlists"
+        }
+    }
 
 @app.get("/watchlist")
 def get_watchlist(background_tasks: BackgroundTasks, user_id: str = Query(...), force: bool = False):
@@ -196,6 +205,32 @@ def get_watchlist(background_tasks: BackgroundTasks, user_id: str = Query(...), 
     if not items:
         raise HTTPException(status_code=504, detail="Initial scrape failed. Try again in a minute.")
     return items
+
+@app.get("/stats")
+def get_stats():
+    cache = load_cache()
+    stats = []
+    for uid, data in cache.items():
+        stats.append({
+            "user_id": uid,
+            "count": len(data['items']),
+            "last_updated": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(data['timestamp']))
+        })
+    return stats
+
+@app.get("/search")
+def search_cache(q: str = Query(..., description="Search query")):
+    cache = load_cache()
+    query = q.lower()
+    results = []
+    for uid, data in cache.items():
+        for item in data['items']:
+            if query in item['title'].lower():
+                # Add uid to the item for context in search results
+                result_item = item.copy()
+                result_item["source_user_id"] = uid
+                results.append(result_item)
+    return results
 
 @app.get("/radarr")
 def get_radarr_list(background_tasks: BackgroundTasks, user_id: str = Query(...), force: bool = False):
