@@ -284,7 +284,8 @@ if __name__ == "__main__":
             for item in data['items']:
                 if query in item['title'].lower():
                     year_str = f" ({item['year']})" if item.get('year') else ""
-                    print(f"[{uid}] {item['imdb']}\t{item['title']}{year_str}")
+                    type_str = f" [{item.get('type', 'unknown')}]"
+                    print(f"[{uid}] {item['imdb']}\t{item['title']}{year_str}{type_str}")
                     found = True
         if not found:
             print("No matches found in cache.")
