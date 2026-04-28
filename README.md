@@ -22,7 +22,7 @@ This CLI tool scrapes your public IMDb watchlist and serves it in a JSON format 
    ```yaml
    services:
      imdb-server:
-       image: registry.shifamily.com/homestack/imdb-watchlist-server:latest
+       image: imdb-watchlist-server:latest
        container_name: imdb-server
        ports:
          - "8080:8080"
@@ -47,7 +47,7 @@ This CLI tool scrapes your public IMDb watchlist and serves it in a JSON format 
 2. Click **+** to add a new list.
 3. Select **Custom List** (or **Steven Lu** in some versions).
 4. **Name**: IMDb Watchlist
-5. **List URL**: `http://your-server-ip:8080/radarr?user_id=p.ihsdaxvamkt2qy6nc3ay4zphqa`
+5. **List URL**: `http://your-server-ip:8080/radarr?user_id=p.xxxxxxxxx`
    - Replace `your-server-ip` with the IP of the machine running this script.
    - Replace the `user_id` with your actual IMDb ID or URL.
 6. Click **Test** and then **Save**.
@@ -56,7 +56,7 @@ This CLI tool scrapes your public IMDb watchlist and serves it in a JSON format 
 
 1. Go to **Settings > Import Lists**.
 2. Click **+** and select **Advanced List > Custom List**.
-3. **List URL**: `http://your-server-ip:8080/sonarr?user_id=p.ihsdaxvamkt2qy6nc3ay4zphqa`
+3. **List URL**: `http://your-server-ip:8080/sonarr?user_id=p.xxxxxxxxx`
 4. Note: Sonarr primarily uses TVDb IDs. Since IMDb only provides IMDb IDs, Sonarr might struggle unless it has a built-in mapper for the titles.
 
 ## Troubleshooting

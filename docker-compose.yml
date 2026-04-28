@@ -1,6 +1,6 @@
 services:
   imdb-server:
-    image: registry.shifamily.com/homestack/imdb-watchlist-server:latest
+    image: imdb-watchlist-server:latest
     container_name: imdb-server
     ports:
       - "8080:8080"
