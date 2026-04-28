@@ -3,7 +3,7 @@ name: imdb-watchlist-manager
 description: Interface for managing and querying IMDb watchlists via the local sync server. Supports fetching lists for Radarr/Sonarr, searching cache, and viewing stats.
 version: 1.0.0
 requirements:
-  - name: IMDB_SERVER_URL
+  - name: IMDB_WATCHLIST_SERVER_URL
     description: The base URL of your IMDb Watchlist Sync server (e.g., http://localhost:8080).
 ---
 
@@ -13,18 +13,18 @@ Use this skill to interact with the IMDb Watchlist Sync server. You can fetch wa
 ## Endpoints
 
 ### 1. Fetch Watchlist
-- **URL**: `${IMDB_SERVER_URL}/watchlist?user_id={USER_ID}`
+- **URL**: `${IMDB_WATCHLIST_SERVER_URL}/watchlist?user_id={USER_ID}`
 - **Method**: GET
 - **Description**: Returns the full watchlist for a user.
-- **Formats**: Also supports `${IMDB_SERVER_URL}/radarr` and `${IMDB_SERVER_URL}/sonarr` for specific app formats.
+- **Formats**: Also supports `${IMDB_WATCHLIST_SERVER_URL}/radarr` and `${IMDB_WATCHLIST_SERVER_URL}/sonarr` for specific app formats.
 
 ### 2. Search Cache
-- **URL**: `${IMDB_SERVER_URL}/search?q={QUERY}`
+- **URL**: `${IMDB_WATCHLIST_SERVER_URL}/search?q={QUERY}`
 - **Method**: GET
 - **Description**: Searches for a movie title across all cached watchlists.
 
 ### 3. Cache Statistics
-- **URL**: `${IMDB_SERVER_URL}/stats`
+- **URL**: `${IMDB_WATCHLIST_SERVER_URL}/stats`
 - **Method**: GET
 - **Description**: Shows all users in the cache, item counts, and last update timestamps.
 
