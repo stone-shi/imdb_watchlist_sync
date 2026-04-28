@@ -139,7 +139,9 @@ def scrape_imdb_watchlist(user_id: str):
             if imdb_id:
                 items.append({
                     "title": title,
-                    "imdb_id": imdb_id,
+                    "imdb": imdb_id,     # Radarr/Sonarr Custom List expects this
+                    "imdb_id": imdb_id,  # Legacy support
+                    "imdbId": imdb_id,   # camelCase support
                     "year": year
                 })
         
