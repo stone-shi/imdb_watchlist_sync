@@ -212,8 +212,38 @@ if __name__ == "__main__":
     parser.add_argument("--user-id")
     parser.add_argument("--scrape-only", action="store_true")
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--search", help="Search for a movie title in the local cache")
+    parser.add_argument("--stats", action="store_true", help="Show statistics of the local cache")
     
     args = parser.parse_args()
+
+    if args.stats:
+        cache = load_cache()
+        if not cache:
+            print("Cache is empty.")
+        else:
+            print(f"{'User ID':<40} {'Items':<10} {'Last Updated'}")
+            print("-" * 80)
+            for uid, data in cache.items():
+                last_updated = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(data['timestamp']))
+                print(f"{uid:<40} {len(data['items']):<10} {last_updated}")
+        sys.exit(0)
+
+    if args.search:
+        cache = load_cache()
+        query = args.search.lower()
+        found = False
+        print(f"Searching for '{args.search}' in cache...")
+        print("-" * 80)
+        for uid, data in cache.items():
+            for item in data['items']:
+                if query in item['title'].lower():
+                    year_str = f" ({item['year']})" if item.get('year') else ""
+                    print(f"[{uid}] {item['imdb']}\t{item['title']}{year_str}")
+                    found = True
+        if not found:
+            print("No matches found in cache.")
+        sys.exit(0)
     
     if args.user_id:
         uid = get_user_id(args.user_id)

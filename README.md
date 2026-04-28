@@ -41,6 +41,15 @@ This CLI tool scrapes your public IMDb watchlist and serves it in a JSON format 
    python imdb_server.py --user-id "https://www.imdb.com/user/p.xxxxxxx/watchlist" --scrape-only
    ```
 
+4. **Search and Statistics**:
+   ```bash
+   # Show cache statistics
+   python imdb_server.py --stats
+
+   # Search for a title in the cache
+   python imdb_server.py --search "Frankenstein"
+   ```
+
 ## Integration with Radarr
 
 1. Go to **Settings > Lists**.
