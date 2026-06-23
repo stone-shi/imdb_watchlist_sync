@@ -7,3 +7,4 @@ downloaded_files/
 .idea/
 *.log
 .DS_Store
+version.txt

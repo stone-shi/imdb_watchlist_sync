@@ -19,6 +19,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("imdb-server")
 
+# Try to load version
+VERSION = "unknown"
+if os.path.exists("version.txt"):
+    try:
+        with open("version.txt", "r") as _f:
+            VERSION = _f.read().strip()
+    except Exception:
+        pass
+
 app = FastAPI(title="IMDb Watchlist Server for *arr")
 
 @app.middleware("http")
@@ -179,6 +188,7 @@ def read_root():
     return {
         "status": "online", 
         "info": "IMDb Watchlist Server for *arr",
+        "version": VERSION,
         "endpoints": {
             "/radarr?user_id=...": "Radarr compatible JSON list",
             "/sonarr?user_id=...": "Sonarr compatible JSON list",
