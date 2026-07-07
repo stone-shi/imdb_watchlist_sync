@@ -8,3 +8,4 @@ downloaded_files/
 *.log
 .DS_Store
 version.txt
+test-reports/
