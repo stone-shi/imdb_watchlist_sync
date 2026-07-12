@@ -1,7 +1,10 @@
+import logging
 import time
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
+
+import embedding
 
 # FastMCP defaults to host="127.0.0.1", which auto-enables DNS-rebinding
 # protection that only allows Host headers of 127.0.0.1/localhost/::1. This
@@ -10,25 +13,59 @@ from mcp.server.fastmcp import FastMCP
 # proxied request with a 421.
 mcp = FastMCP("imdb-watchlist", host="0.0.0.0")
 
+logger = logging.getLogger("imdb-server.mcp")
+
 # Same type groupings as imdb_server.py's /radarr and /sonarr filters.
 MOVIE_TYPES = ["movie", "tvMovie", "video"]
 TV_TYPES = ["tvSeries", "tvMiniSeries", "tvSpecial", "tvShort"]
 
+# Max number of semantic-only matches (i.e. not already found lexically) to add.
+SEMANTIC_TOP_K = 5
+
 
 @mcp.tool()
 def search_watchlist(query: str) -> list:
-    """Search cached watchlists across all users for titles matching query (case-insensitive substring match)."""
+    """Search cached watchlists across all users for titles matching query. Uses case-insensitive
+    substring matching, blended with semantic similarity search when an embedding API is configured
+    via the EMBEDDING_API_URL/EMBEDDING_API_KEY/EMBEDDING_MODEL environment variables."""
     from imdb_server import load_cache
 
     cache = load_cache()
     q = query.lower()
-    results = []
+
+    all_items = []
     for uid, data in cache.items():
         for item in data["items"]:
-            if q in item["title"].lower():
-                result_item = item.copy()
-                result_item["source_user_id"] = uid
-                results.append(result_item)
+            entry = item.copy()
+            entry["source_user_id"] = uid
+            all_items.append(entry)
+
+    results = [item for item in all_items if q in item["title"].lower()]
+    matched_ids = {item["imdb"] for item in results}
+    for item in results:
+        item["match_type"] = "lexical"
+        item["score"] = 1.0
+
+    if embedding.is_configured():
+        try:
+            embeddings = embedding.get_embeddings(all_items)
+            query_vector = embedding.embed_texts([query])[0]
+            scored = sorted(
+                (
+                    (item, embedding.cosine_similarity(query_vector, embeddings[item["imdb"]]))
+                    for item in all_items
+                    if item["imdb"] not in matched_ids and item["imdb"] in embeddings
+                ),
+                key=lambda pair: pair[1],
+                reverse=True,
+            )
+            for item, score in scored[:SEMANTIC_TOP_K]:
+                item["match_type"] = "semantic"
+                item["score"] = score
+                results.append(item)
+        except Exception:
+            logger.warning("Semantic search failed, returning lexical-only results", exc_info=True)
+
     return results
 
 

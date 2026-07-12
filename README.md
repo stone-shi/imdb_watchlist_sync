@@ -59,6 +59,21 @@ The server also exposes an MCP interface with read-only tools (`search_watchlist
 
 Both come up automatically alongside the REST API — no separate process or port.
 
+### Semantic Search (optional)
+
+`search_watchlist` blends in semantic similarity search when an OpenAI-compatible
+embeddings API is configured via environment variables (e.g. in a local `.env`
+file, which is git-ignored):
+
+- `EMBEDDING_API_URL`: base URL of the embeddings API (e.g. `https://your-host/v1`).
+- `EMBEDDING_API_KEY`: bearer token for that API, if required.
+- `EMBEDDING_MODEL`: model name to request embeddings from.
+
+If unset, `search_watchlist` falls back to plain case-insensitive substring
+matching. Computed embeddings are cached in `data/embedding_index.json` so
+each title is only embedded once (re-embedded automatically if the model
+changes).
+
 ## Integration with Radarr
 
 1. Go to **Settings > Lists**.

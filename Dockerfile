@@ -38,7 +38,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN sbase install chromedriver
 
 # Copy the application code
-COPY imdb_server.py mcp_server.py .
+COPY imdb_server.py mcp_server.py embedding.py .
 COPY version.txt* .
 
 # Expose port
