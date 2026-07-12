@@ -10,6 +10,9 @@ import os
 import time
 import logging
 import threading
+import contextlib
+
+from mcp_server import mcp
 
 # Configure logging
 logging.basicConfig(
@@ -19,7 +22,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("imdb-server")
 
-app = FastAPI(title="IMDb Watchlist Server for *arr")
+# FastMCP's streamable_http_app() needs its session manager's lifespan running
+# for the duration of the ASGI app's life; chain it into FastAPI's own lifespan
+# since Starlette does not auto-propagate lifespan events into mounted sub-apps.
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
+app = FastAPI(title="IMDb Watchlist Server for *arr", lifespan=lifespan)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -28,6 +39,16 @@ async def log_requests(request: Request, call_next):
     process_time = time.time() - start_time
     logger.info(f"{request.method} {request.url.path} - {response.status_code} ({process_time:.2f}s)")
     return response
+
+# FastMCP mounts its streamable-http/SSE routes at its own configured paths
+# (default "/mcp" and "/sse") *within* the sub-app it returns. Since we mount
+# that sub-app under "/mcp" and "/sse" here too, override the internal paths
+# to "/" so the final external paths are exactly "/mcp" and "/sse" rather than
+# double-prefixed "/mcp/mcp" and "/sse/sse".
+mcp.settings.streamable_http_path = "/"
+mcp.settings.sse_path = "/"
+app.mount("/mcp", mcp.streamable_http_app())
+app.mount("/sse", mcp.sse_app())
 
 # Global cache
 CACHE_DIR = "data"
@@ -183,7 +204,9 @@ def read_root():
             "/radarr?user_id=...": "Radarr compatible JSON list",
             "/sonarr?user_id=...": "Sonarr compatible JSON list",
             "/stats": "Get cache statistics",
-            "/search?q=...": "Search across all cached watchlists"
+            "/search?q=...": "Search across all cached watchlists",
+            "/mcp": "MCP streamable-http endpoint (search_watchlist, get_stats, list_watchlist tools)",
+            "/sse": "MCP SSE endpoint (same tools as /mcp)"
         }
     }
 

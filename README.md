@@ -50,6 +50,15 @@ This CLI tool scrapes your public IMDb watchlist and serves it in a JSON format 
    python imdb_server.py --search "Frankenstein"
    ```
 
+## MCP Integration
+
+The server also exposes an MCP interface with read-only tools (`search_watchlist`, `get_stats`, `list_watchlist`) for agents:
+
+- **Streamable HTTP**: `http://your-server-ip:8080/mcp`
+- **SSE**: `http://your-server-ip:8080/sse`
+
+Both come up automatically alongside the REST API — no separate process or port.
+
 ## Integration with Radarr
 
 1. Go to **Settings > Lists**.
