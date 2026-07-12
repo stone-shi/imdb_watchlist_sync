@@ -36,3 +36,45 @@ def get_stats() -> list:
             "last_updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(data["timestamp"])),
         })
     return stats
+
+
+@mcp.tool()
+def list_watchlist(user_id: str, page: int = 1, page_size: int = 20) -> dict:
+    """Paginated view of one user's cached watchlist. Triggers a scrape if uncached (blocking) or refreshes in the background if stale."""
+    import threading
+
+    from imdb_server import get_user_id, load_cache, scrape_imdb_watchlist
+
+    uid = get_user_id(user_id)
+    cache = load_cache()
+    cached_entry = cache.get(uid)
+
+    if not cached_entry:
+        items = scrape_imdb_watchlist(uid)
+        if not items:
+            return {
+                "error": "Initial scrape failed. Try again in a minute.",
+                "items": [],
+                "page": page,
+                "page_size": page_size,
+                "total_items": 0,
+                "total_pages": 0,
+            }
+    else:
+        items = cached_entry["items"]
+        is_stale = time.time() - cached_entry.get("timestamp", 0) > 3600
+        if is_stale:
+            threading.Thread(target=scrape_imdb_watchlist, args=(uid,)).start()
+
+    total_items = len(items)
+    total_pages = (total_items + page_size - 1) // page_size if page_size > 0 else 0
+    start = (page - 1) * page_size
+    page_items = items[start:start + page_size] if start < total_items else []
+
+    return {
+        "items": page_items,
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+    }
