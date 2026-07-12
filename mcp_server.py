@@ -2,7 +2,12 @@ import time
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("imdb-watchlist")
+# FastMCP defaults to host="127.0.0.1", which auto-enables DNS-rebinding
+# protection that only allows Host headers of 127.0.0.1/localhost/::1. This
+# server is mounted behind a reverse proxy that rewrites the Host header, so
+# host="0.0.0.0" is required to avoid that restriction rejecting every
+# proxied request with a 421.
+mcp = FastMCP("imdb-watchlist", host="0.0.0.0")
 
 
 @mcp.tool()
