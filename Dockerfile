@@ -39,6 +39,7 @@ RUN sbase install chromedriver
 
 # Copy the application code
 COPY imdb_server.py .
+COPY version.txt* .
 
 # Expose port
 EXPOSE 8080

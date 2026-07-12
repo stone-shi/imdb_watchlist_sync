@@ -22,6 +22,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("imdb-server")
 
+# Try to load version
+VERSION = "unknown"
+if os.path.exists("version.txt"):
+    try:
+        with open("version.txt", "r") as _f:
+            VERSION = _f.read().strip()
+    except Exception:
+        pass
+
 # FastMCP's streamable_http_app() needs its session manager's lifespan running
 # for the duration of the ASGI app's life; chain it into FastAPI's own lifespan
 # since Starlette does not auto-propagate lifespan events into mounted sub-apps.
@@ -200,6 +209,7 @@ def read_root():
     return {
         "status": "online", 
         "info": "IMDb Watchlist Server for *arr",
+        "version": VERSION,
         "endpoints": {
             "/radarr?user_id=...": "Radarr compatible JSON list",
             "/sonarr?user_id=...": "Sonarr compatible JSON list",
