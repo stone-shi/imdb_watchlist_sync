@@ -10,6 +10,10 @@ from mcp.server.fastmcp import FastMCP
 # proxied request with a 421.
 mcp = FastMCP("imdb-watchlist", host="0.0.0.0")
 
+# Same type groupings as imdb_server.py's /radarr and /sonarr filters.
+MOVIE_TYPES = ["movie", "tvMovie", "video"]
+TV_TYPES = ["tvSeries", "tvMiniSeries", "tvSpecial", "tvShort"]
+
 
 @mcp.tool()
 def search_watchlist(query: str) -> list:
@@ -30,23 +34,26 @@ def search_watchlist(query: str) -> list:
 
 @mcp.tool()
 def get_stats() -> list:
-    """Get cache statistics: item count and last-updated time for every cached user."""
+    """Get cache statistics: movie count, tv count, and last-updated time for every cached user."""
     from imdb_server import load_cache
 
     cache = load_cache()
     stats = []
     for uid, data in cache.items():
+        movie_count = sum(1 for i in data["items"] if i.get("type") in MOVIE_TYPES or i.get("type") is None)
+        tv_count = sum(1 for i in data["items"] if i.get("type") in TV_TYPES)
         stats.append({
             "user_id": uid,
-            "count": len(data["items"]),
+            "movie_count": movie_count,
+            "tv_count": tv_count,
             "last_updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(data["timestamp"])),
         })
     return stats
 
 
 @mcp.tool()
-def list_watchlist(user_id: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
-    """Paginated view of one user's cached watchlist. If user_id is omitted, defaults to the only cached user (error if the cache has zero or more than one). Triggers a scrape if uncached (blocking) or refreshes in the background if stale."""
+def list_watchlist(user_id: Optional[str] = None, page: int = 1, page_size: int = 20, filter: str = "all") -> dict:
+    """Paginated view of one user's cached watchlist. If user_id is omitted, defaults to the only cached user (error if the cache has zero or more than one). filter can be 'all', 'movie', or 'tv' to restrict the results by title type (invalid values are treated as 'all'). Triggers a scrape if uncached (blocking) or refreshes in the background if stale."""
     import threading
 
     from imdb_server import get_user_id, load_cache, scrape_imdb_watchlist
@@ -91,6 +98,11 @@ def list_watchlist(user_id: Optional[str] = None, page: int = 1, page_size: int 
         is_stale = time.time() - cached_entry.get("timestamp", 0) > 3600
         if is_stale:
             threading.Thread(target=scrape_imdb_watchlist, args=(uid,)).start()
+
+    if filter == "movie":
+        items = [i for i in items if i.get("type") in MOVIE_TYPES or i.get("type") is None]
+    elif filter == "tv":
+        items = [i for i in items if i.get("type") in TV_TYPES]
 
     total_items = len(items)
     total_pages = (total_items + page_size - 1) // page_size if page_size > 0 else 0
