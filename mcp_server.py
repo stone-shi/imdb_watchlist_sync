@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -44,14 +45,34 @@ def get_stats() -> list:
 
 
 @mcp.tool()
-def list_watchlist(user_id: str, page: int = 1, page_size: int = 20) -> dict:
-    """Paginated view of one user's cached watchlist. Triggers a scrape if uncached (blocking) or refreshes in the background if stale."""
+def list_watchlist(user_id: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
+    """Paginated view of one user's cached watchlist. If user_id is omitted, defaults to the only cached user (error if the cache has zero or more than one). Triggers a scrape if uncached (blocking) or refreshes in the background if stale."""
     import threading
 
     from imdb_server import get_user_id, load_cache, scrape_imdb_watchlist
 
-    uid = get_user_id(user_id)
     cache = load_cache()
+
+    if user_id is None:
+        cached_uids = list(cache.keys())
+        if len(cached_uids) != 1:
+            error = (
+                "No cached users. Provide a user_id."
+                if not cached_uids
+                else "Multiple cached users; user_id is required. Call get_stats to see them."
+            )
+            return {
+                "error": error,
+                "items": [],
+                "page": page,
+                "page_size": page_size,
+                "total_items": 0,
+                "total_pages": 0,
+            }
+        uid = cached_uids[0]
+    else:
+        uid = get_user_id(user_id)
+
     cached_entry = cache.get(uid)
 
     if not cached_entry:
