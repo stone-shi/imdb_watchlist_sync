@@ -254,3 +254,141 @@ def test_sonarr_add_series_builds_payload_from_lookup_result():
     assert sent_payload["seasonFolder"] is True
     assert sent_payload["monitored"] is True
     assert sent_payload["addOptions"] == {"monitor": "all", "searchForMissingEpisodes": True}
+
+
+import threading
+
+
+def _base_config(**overrides):
+    config = json.loads(json.dumps(arr_sync.DEFAULT_CONFIG))
+    config["dry_run"] = False
+    config["radarr"]["url"] = "https://radarr.example.com"
+    config["radarr"]["api_key"] = "key"
+    config["sonarr"]["url"] = "https://sonarr.example.com"
+    config["sonarr"]["api_key"] = "key"
+    for k, v in overrides.items():
+        config[k] = v
+    return config
+
+
+def test_sync_movies_skips_items_already_in_library(monkeypatch):
+    client = MagicMock()
+    client.get_library_imdb_ids.return_value = {"tt1"}
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    monkeypatch.setattr(arr_sync, "RadarrClient", lambda url, key: client)
+
+    counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "Already Have It"}],
+                                     threading.Event())
+
+    assert counts["skipped_existing"] == 1
+    assert counts["added"] == 0
+    client.lookup_by_imdb.assert_not_called()
+
+
+def test_sync_movies_skips_excluded_items(monkeypatch):
+    client = MagicMock()
+    client.get_library_imdb_ids.return_value = set()
+    client.get_excluded_tmdb_ids.return_value = {603}
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
+    monkeypatch.setattr(arr_sync, "RadarrClient", lambda url, key: client)
+
+    counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt0133093", "title": "The Matrix"}],
+                                     threading.Event())
+
+    assert counts["skipped_excluded"] == 1
+    assert counts["added"] == 0
+    client.add_movie.assert_not_called()
+
+
+def test_sync_movies_dry_run_does_not_call_add(monkeypatch):
+    client = MagicMock()
+    client.get_library_imdb_ids.return_value = set()
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
+    monkeypatch.setattr(arr_sync, "RadarrClient", lambda url, key: client)
+
+    counts = arr_sync._sync_movies(_base_config(dry_run=True),
+                                     [{"imdb": "tt0133093", "title": "The Matrix"}], threading.Event())
+
+    assert counts["would_add"] == 1
+    client.add_movie.assert_not_called()
+
+
+def test_sync_movies_adds_new_item():
+    client = MagicMock()
+    client.get_library_imdb_ids.return_value = set()
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt0133093", "title": "The Matrix"}],
+                                         threading.Event())
+
+    assert counts["added"] == 1
+    client.add_movie.assert_called_once()
+
+
+def test_sync_movies_counts_failed_lookup():
+    client = MagicMock()
+    client.get_library_imdb_ids.return_value = set()
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.lookup_by_imdb.return_value = None
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt9999999", "title": "Unknown"}],
+                                         threading.Event())
+
+    assert counts["failed"] == 1
+
+
+def test_sync_movies_stops_early_when_stop_event_set():
+    client = MagicMock()
+    client.get_library_imdb_ids.return_value = set()
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    stop_event = threading.Event()
+    stop_event.set()
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "X"}], stop_event)
+
+    assert counts == {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0, "failed": 0}
+    client.lookup_by_imdb.assert_not_called()
+
+
+def test_sync_movies_skips_when_radarr_not_configured():
+    config = _base_config()
+    config["radarr"]["url"] = ""
+    counts = arr_sync._sync_movies(config, [{"imdb": "tt1", "title": "X"}], threading.Event())
+    assert counts["added"] == 0
+
+
+def test_run_sync_splits_movie_and_tv_items(monkeypatch):
+    cache = {
+        "ur1": {"items": [
+            {"imdb": "tt1", "title": "A Movie", "type": "movie"},
+            {"imdb": "tt2", "title": "A Show", "type": "tvSeries"},
+        ]}
+    }
+    monkeypatch.setattr("imdb_server.load_cache", lambda: cache)
+    monkeypatch.setattr(arr_sync, "load_arr_config", lambda: _base_config(dry_run=True))
+    movie_calls = []
+    tv_calls = []
+    monkeypatch.setattr(arr_sync, "_sync_movies",
+                         lambda config, items, stop_event: movie_calls.append(items) or {"added": 0})
+    monkeypatch.setattr(arr_sync, "_sync_tv",
+                         lambda config, items, stop_event: tv_calls.append(items) or {"added": 0})
+
+    result = arr_sync._run_sync("test", threading.Event())
+
+    assert len(movie_calls[0]) == 1 and movie_calls[0][0]["title"] == "A Movie"
+    assert len(tv_calls[0]) == 1 and tv_calls[0][0]["title"] == "A Show"
+    assert result == {"radarr": {"added": 0}, "sonarr": {"added": 0}, "dry_run": True}

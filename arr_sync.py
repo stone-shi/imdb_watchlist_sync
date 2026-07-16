@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 from collections import deque
 from typing import Optional
 
@@ -196,3 +197,168 @@ class SonarrClient:
         payload["monitored"] = True
         payload["addOptions"] = {"monitor": monitor, "searchForMissingEpisodes": search_on_add}
         return self._post("/series", payload)
+
+
+def _sync_movies(config: dict, items: list, stop_event) -> dict:
+    counts = {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0, "failed": 0}
+    radarr_config = config["radarr"]
+    if not radarr_config.get("url") or not radarr_config.get("api_key"):
+        logger.info("Radarr not configured, skipping movies")
+        return counts
+
+    client = RadarrClient(radarr_config["url"], radarr_config["api_key"])
+    try:
+        existing_imdb_ids = client.get_library_imdb_ids()
+        excluded_tmdb_ids = client.get_excluded_tmdb_ids()
+        quality_profile_id = client.resolve_quality_profile_id(radarr_config["quality_profile"])
+        root_folder_path = client.resolve_root_folder_path(radarr_config["root_folder_path"])
+    except Exception:
+        logger.error("Failed to fetch Radarr library/exclusions/profile/root folder", exc_info=True)
+        return counts
+
+    if quality_profile_id is None:
+        logger.error("Radarr quality profile '%s' not found, skipping movies",
+                      radarr_config["quality_profile"])
+        return counts
+    if root_folder_path is None:
+        logger.error("Radarr root folder is ambiguous or unset, skipping movies")
+        return counts
+
+    for item in items:
+        if stop_event.is_set():
+            logger.info("Stop requested, halting Radarr sync early")
+            break
+
+        imdb_id = item.get("imdb") or item.get("imdbId") or item.get("imdb_id")
+        if not imdb_id or imdb_id in existing_imdb_ids:
+            counts["skipped_existing"] += 1
+            continue
+
+        try:
+            movie = client.lookup_by_imdb(imdb_id)
+            if not movie:
+                logger.warning("No Radarr lookup match for %s (%s)", item.get("title"), imdb_id)
+                counts["failed"] += 1
+                continue
+            if movie.get("tmdbId") in excluded_tmdb_ids:
+                logger.info("Skipping excluded movie: %s", movie.get("title"))
+                counts["skipped_excluded"] += 1
+                continue
+            if config["dry_run"]:
+                logger.info("[dry run] would add movie: %s", movie.get("title"))
+                counts["would_add"] += 1
+                continue
+            client.add_movie(
+                movie,
+                quality_profile_id=quality_profile_id,
+                root_folder_path=root_folder_path,
+                minimum_availability=radarr_config["minimum_availability"],
+                search_on_add=radarr_config["search_on_add"],
+            )
+            logger.info("Added movie: %s", movie.get("title"))
+            counts["added"] += 1
+        except Exception:
+            logger.error("Failed to add movie %s (%s)", item.get("title"), imdb_id, exc_info=True)
+            counts["failed"] += 1
+
+    return counts
+
+
+def _sync_tv(config: dict, items: list, stop_event) -> dict:
+    counts = {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0, "failed": 0}
+    sonarr_config = config["sonarr"]
+    if not sonarr_config.get("url") or not sonarr_config.get("api_key"):
+        logger.info("Sonarr not configured, skipping tv shows")
+        return counts
+
+    client = SonarrClient(sonarr_config["url"], sonarr_config["api_key"])
+    try:
+        existing_imdb_ids = client.get_library_imdb_ids()
+        excluded_tvdb_ids = client.get_excluded_tvdb_ids()
+        quality_profile_id = client.resolve_quality_profile_id(sonarr_config["quality_profile"])
+        root_folder_path = client.resolve_root_folder_path(sonarr_config["root_folder_path"])
+    except Exception:
+        logger.error("Failed to fetch Sonarr library/exclusions/profile/root folder", exc_info=True)
+        return counts
+
+    if quality_profile_id is None:
+        logger.error("Sonarr quality profile '%s' not found, skipping tv shows",
+                      sonarr_config["quality_profile"])
+        return counts
+    if root_folder_path is None:
+        logger.error("Sonarr root folder is ambiguous or unset, skipping tv shows")
+        return counts
+
+    for item in items:
+        if stop_event.is_set():
+            logger.info("Stop requested, halting Sonarr sync early")
+            break
+
+        imdb_id = item.get("imdb") or item.get("imdbId") or item.get("imdb_id")
+        if not imdb_id or imdb_id in existing_imdb_ids:
+            counts["skipped_existing"] += 1
+            continue
+
+        try:
+            series = client.lookup_by_imdb(imdb_id)
+            if not series:
+                logger.warning("No Sonarr lookup match for %s (%s)", item.get("title"), imdb_id)
+                counts["failed"] += 1
+                continue
+            if series.get("tvdbId") in excluded_tvdb_ids:
+                logger.info("Skipping excluded series: %s", series.get("title"))
+                counts["skipped_excluded"] += 1
+                continue
+            if config["dry_run"]:
+                logger.info("[dry run] would add series: %s", series.get("title"))
+                counts["would_add"] += 1
+                continue
+            client.add_series(
+                series,
+                quality_profile_id=quality_profile_id,
+                root_folder_path=root_folder_path,
+                series_type=sonarr_config["series_type"],
+                season_folder=sonarr_config["season_folder"],
+                monitor=sonarr_config["monitor"],
+                search_on_add=sonarr_config["search_on_add"],
+            )
+            logger.info("Added series: %s", series.get("title"))
+            counts["added"] += 1
+        except Exception:
+            logger.error("Failed to add series %s (%s)", item.get("title"), imdb_id, exc_info=True)
+            counts["failed"] += 1
+
+    return counts
+
+
+def _run_sync(source: str, stop_event) -> dict:
+    from imdb_server import load_cache
+    from mcp_server import MOVIE_TYPES, TV_TYPES
+
+    config = load_arr_config()
+    cache = load_cache()
+
+    movie_items = []
+    tv_items = []
+    for data in cache.values():
+        for item in data.get("items", []):
+            item_type = item.get("type")
+            if item_type in TV_TYPES:
+                tv_items.append(item)
+            elif item_type in MOVIE_TYPES or item_type is None:
+                movie_items.append(item)
+
+    logger.info("Starting arr sync (source=%s, dry_run=%s): %d movie items, %d tv items",
+                source, config["dry_run"], len(movie_items), len(tv_items))
+
+    radarr_counts = _sync_movies(config, movie_items, stop_event)
+    sonarr_counts = {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0, "failed": 0}
+    if not stop_event.is_set():
+        sonarr_counts = _sync_tv(config, tv_items, stop_event)
+
+    logger.info("Finished arr sync: radarr=%s sonarr=%s", radarr_counts, sonarr_counts)
+    return {"radarr": radarr_counts, "sonarr": sonarr_counts, "dry_run": config["dry_run"]}
+
+
+def run_sync_once(source: str = "cli") -> dict:
+    return _run_sync(source, threading.Event())
