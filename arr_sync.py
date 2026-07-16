@@ -2,7 +2,9 @@ import json
 import logging
 import os
 from collections import deque
+from typing import Optional
 
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -89,3 +91,55 @@ def load_arr_config() -> dict:
         config["radarr"]["api_key"] = os.environ["RADARR_API_KEY"]
 
     return config
+
+
+class RadarrClient:
+    def __init__(self, url: str, api_key: str):
+        self.base_url = url.rstrip("/")
+        self.headers = {"X-Api-Key": api_key}
+
+    def _get(self, path: str):
+        resp = requests.get(f"{self.base_url}/api/v3{path}", headers=self.headers, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _post(self, path: str, payload: dict):
+        resp = requests.post(f"{self.base_url}/api/v3{path}", headers=self.headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_library_imdb_ids(self) -> set:
+        return {m["imdbId"] for m in self._get("/movie") if m.get("imdbId")}
+
+    def get_excluded_tmdb_ids(self) -> set:
+        return {e["tmdbId"] for e in self._get("/exclusions") if e.get("tmdbId")}
+
+    def resolve_quality_profile_id(self, name: str) -> Optional[int]:
+        for profile in self._get("/qualityprofile"):
+            if profile["name"] == name:
+                return profile["id"]
+        return None
+
+    def resolve_root_folder_path(self, configured: Optional[str]) -> Optional[str]:
+        if configured:
+            return configured
+        folders = self._get("/rootfolder")
+        if len(folders) == 1:
+            return folders[0]["path"]
+        return None
+
+    def lookup_by_imdb(self, imdb_id: str) -> Optional[dict]:
+        try:
+            return self._get(f"/movie/lookup/imdb?imdbId={imdb_id}")
+        except requests.HTTPError:
+            return None
+
+    def add_movie(self, movie: dict, quality_profile_id: int, root_folder_path: str,
+                   minimum_availability: str, search_on_add: bool) -> dict:
+        payload = dict(movie)
+        payload["qualityProfileId"] = quality_profile_id
+        payload["rootFolderPath"] = root_folder_path
+        payload["monitored"] = True
+        payload["minimumAvailability"] = minimum_availability
+        payload["addOptions"] = {"searchForMovie": search_on_add}
+        return self._post("/movie", payload)

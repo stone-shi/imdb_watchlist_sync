@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -99,3 +100,98 @@ def test_load_arr_config_env_overrides_file(tmp_path, monkeypatch):
     assert config["poll_interval_seconds"] == 42
     assert config["radarr"]["url"] == "https://from-env.example.com"
     assert config["radarr"]["api_key"] == "env-key"
+
+
+def _fake_response(json_data, status=200, raise_exc=None):
+    resp = MagicMock()
+    resp.json.return_value = json_data
+    if raise_exc:
+        resp.raise_for_status.side_effect = raise_exc
+    else:
+        resp.raise_for_status.return_value = None
+    resp.status_code = status
+    return resp
+
+
+def test_radarr_get_library_imdb_ids():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    movies = [{"imdbId": "tt1"}, {"imdbId": "tt2"}, {"title": "no imdb id"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(movies)) as mock_get:
+        result = client.get_library_imdb_ids()
+    assert result == {"tt1", "tt2"}
+    mock_get.assert_called_once_with(
+        "https://radarr.example.com/api/v3/movie", headers={"X-Api-Key": "key"}, timeout=30)
+
+
+def test_radarr_get_excluded_tmdb_ids():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    exclusions = [{"tmdbId": 111}, {"tmdbId": 222}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(exclusions)):
+        result = client.get_excluded_tmdb_ids()
+    assert result == {111, 222}
+
+
+def test_radarr_resolve_quality_profile_id_found():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    profiles = [{"id": 1, "name": "Any"}, {"id": 4, "name": "HD-1080p"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(profiles)):
+        assert client.resolve_quality_profile_id("HD-1080p") == 4
+
+
+def test_radarr_resolve_quality_profile_id_not_found():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    profiles = [{"id": 1, "name": "Any"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(profiles)):
+        assert client.resolve_quality_profile_id("Nonexistent") is None
+
+
+def test_radarr_resolve_root_folder_path_configured_wins():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    assert client.resolve_root_folder_path("/custom/path") == "/custom/path"
+
+
+def test_radarr_resolve_root_folder_path_auto_selects_sole_folder():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    with patch("arr_sync.requests.get", return_value=_fake_response([{"id": 1, "path": "/media/Movies"}])):
+        assert client.resolve_root_folder_path(None) == "/media/Movies"
+
+
+def test_radarr_resolve_root_folder_path_ambiguous_returns_none():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    folders = [{"id": 1, "path": "/a"}, {"id": 2, "path": "/b"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(folders)):
+        assert client.resolve_root_folder_path(None) is None
+
+
+def test_radarr_lookup_by_imdb_found():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    movie = {"title": "The Matrix", "year": 1999, "imdbId": "tt0133093", "tmdbId": 603}
+    with patch("arr_sync.requests.get", return_value=_fake_response(movie)):
+        assert client.lookup_by_imdb("tt0133093") == movie
+
+
+def test_radarr_lookup_by_imdb_not_found_returns_none():
+    import requests
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    resp = _fake_response({"message": "not found"}, status=500,
+                           raise_exc=requests.HTTPError("500 Server Error"))
+    with patch("arr_sync.requests.get", return_value=resp):
+        assert client.lookup_by_imdb("tt0000000") is None
+
+
+def test_radarr_add_movie_builds_payload_from_lookup_result():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    movie = {"title": "The Matrix", "year": 1999, "imdbId": "tt0133093", "tmdbId": 603}
+    with patch("arr_sync.requests.post", return_value=_fake_response({"id": 99})) as mock_post:
+        result = client.add_movie(
+            movie, quality_profile_id=4, root_folder_path="/media/Movies",
+            minimum_availability="announced", search_on_add=True)
+    assert result == {"id": 99}
+    sent_payload = mock_post.call_args.kwargs["json"]
+    assert sent_payload["title"] == "The Matrix"
+    assert sent_payload["tmdbId"] == 603
+    assert sent_payload["qualityProfileId"] == 4
+    assert sent_payload["rootFolderPath"] == "/media/Movies"
+    assert sent_payload["minimumAvailability"] == "announced"
+    assert sent_payload["monitored"] is True
+    assert sent_payload["addOptions"] == {"searchForMovie": True}
