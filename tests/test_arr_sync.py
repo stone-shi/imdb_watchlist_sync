@@ -523,3 +523,67 @@ def test_scheduler_loop_survives_malformed_poll_interval(monkeypatch):
             await asyncio.wait_for(arr_sync.scheduler_loop(), timeout=0.2)
 
     asyncio.run(run_briefly())
+
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+_test_app = FastAPI()
+_test_app.include_router(arr_sync.router)
+sync_client = TestClient(_test_app)
+
+
+def test_sync_status_endpoint_shape():
+    response = sync_client.get("/sync/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert "status" in data
+    assert "log" in data
+    assert data["status"]["state"] == "idle"
+
+
+def test_sync_trigger_endpoint_starts_a_run(monkeypatch):
+    monkeypatch.setattr(arr_sync, "_run_sync", lambda source, stop_event: {"radarr": {}, "sonarr": {}})
+
+    response = sync_client.post("/sync/trigger")
+
+    assert response.status_code == 200
+    assert response.json()["started"] is True
+    arr_sync._current_thread.join(timeout=2)
+
+
+def test_sync_trigger_endpoint_rejects_while_running(monkeypatch):
+    release = threading.Event()
+    monkeypatch.setattr(arr_sync, "_run_sync",
+                         lambda source, stop_event: (release.wait(timeout=2), {"radarr": {}, "sonarr": {}})[1])
+
+    sync_client.post("/sync/trigger")
+    time.sleep(0.05)
+    response = sync_client.post("/sync/trigger")
+
+    assert response.json()["started"] is False
+
+    release.set()
+    arr_sync._current_thread.join(timeout=2)
+
+
+def test_sync_stop_endpoint_noop_when_idle():
+    response = sync_client.post("/sync/stop")
+    assert response.json()["stop_requested"] is False
+
+
+def test_sync_page_renders_html_with_buttons():
+    response = sync_client.get("/sync")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert 'action="/sync/trigger"' in response.text
+    assert 'action="/sync/stop"' in response.text
+
+
+def test_sync_page_escapes_log_content(monkeypatch):
+    monkeypatch.setattr(arr_sync, "_log", type(arr_sync._log)(["<script>alert(1)</script>"], maxlen=500))
+
+    response = sync_client.get("/sync")
+
+    assert "<script>alert(1)</script>" not in response.text
+    assert "&lt;script&gt;" in response.text

@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import logging
 import os
@@ -9,6 +10,8 @@ from typing import Optional
 
 import requests
 from dotenv import load_dotenv
+from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
 
 load_dotenv()
 
@@ -449,3 +452,96 @@ async def scheduler_loop():
             logger.error("Error in scheduler tick", exc_info=True)
             interval = DEFAULT_CONFIG["poll_interval_seconds"]
         await asyncio.sleep(interval)
+
+
+def _render_sync_page() -> str:
+    status = get_status()
+    log_lines = get_log()[-200:]
+    log_text = html.escape("\n".join(log_lines)) if log_lines else "(no log yet)"
+    result = status.get("result") or {}
+    radarr_counts = result.get("radarr", {})
+    sonarr_counts = result.get("sonarr", {})
+
+    def fmt_time(ts):
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "-"
+
+    elapsed = ""
+    if status["state"].startswith("running") or status["state"].startswith("stopping"):
+        if status.get("started_at"):
+            elapsed = f" (running for {int(time.time() - status['started_at'])}s)"
+
+    error_html = ""
+    if status.get("error"):
+        error_html = f"<p><strong>Error:</strong> {html.escape(status['error'])}</p>"
+
+    def counts_row(service, counts):
+        return (
+            f"<tr><td>{service}</td>"
+            f"<td>{counts.get('added', '-')}</td>"
+            f"<td>{counts.get('would_add', '-')}</td>"
+            f"<td>{counts.get('skipped_existing', '-')}</td>"
+            f"<td>{counts.get('skipped_excluded', '-')}</td>"
+            f"<td>{counts.get('failed', '-')}</td></tr>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+  <title>Arr Sync Status</title>
+  <meta http-equiv="refresh" content="5">
+  <style>
+    body {{ font-family: monospace; margin: 2em; }}
+    pre {{ background: #f0f0f0; padding: 1em; max-height: 400px; overflow-y: auto; }}
+    table {{ border-collapse: collapse; margin-bottom: 1em; }}
+    td, th {{ border: 1px solid #ccc; padding: 0.3em 0.8em; text-align: left; }}
+    button {{ padding: 0.5em 1em; margin-right: 0.5em; }}
+  </style>
+</head>
+<body>
+  <h1>Arr Sync Status</h1>
+  <p><strong>State:</strong> {html.escape(status['state'])}{elapsed}</p>
+  <p><strong>Source:</strong> {html.escape(status.get('source') or '-')}</p>
+  <p><strong>Started:</strong> {fmt_time(status.get('started_at'))}</p>
+  <p><strong>Finished:</strong> {fmt_time(status.get('finished_at'))}</p>
+  {error_html}
+  <table>
+    <tr><th>Service</th><th>Added</th><th>Would add (dry run)</th><th>Skipped (existing)</th><th>Skipped (excluded)</th><th>Failed</th></tr>
+    {counts_row("Radarr", radarr_counts)}
+    {counts_row("Sonarr", sonarr_counts)}
+  </table>
+  <form method="post" action="/sync/trigger" style="display:inline">
+    <button type="submit">Trigger Sync</button>
+  </form>
+  <form method="post" action="/sync/stop" style="display:inline">
+    <button type="submit">Stop Sync</button>
+  </form>
+  <h2>Recent Log</h2>
+  <pre>{log_text}</pre>
+</body>
+</html>
+"""
+
+
+router = APIRouter()
+
+
+@router.get("/sync/status")
+def sync_status():
+    return {"status": get_status(), "log": get_log()[-200:]}
+
+
+@router.post("/sync/trigger")
+def sync_trigger():
+    started = try_start_sync(source="manual")
+    return {"started": started, "status": get_status()}
+
+
+@router.post("/sync/stop")
+def sync_stop():
+    stopped = request_stop()
+    return {"stop_requested": stopped, "status": get_status()}
+
+
+@router.get("/sync", response_class=HTMLResponse)
+def sync_page():
+    return HTMLResponse(_render_sync_page())
