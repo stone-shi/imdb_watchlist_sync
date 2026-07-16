@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -433,3 +434,13 @@ def get_status() -> dict:
 
 def get_log() -> list:
     return list(_log)
+
+
+async def scheduler_loop():
+    while True:
+        config = load_arr_config()
+        try:
+            try_start_sync(source="periodic")
+        except Exception:
+            logger.error("Error in scheduler tick", exc_info=True)
+        await asyncio.sleep(config["poll_interval_seconds"])

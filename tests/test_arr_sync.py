@@ -492,3 +492,21 @@ def test_run_sync_crash_sets_error_state(monkeypatch):
 def test_get_log_returns_recent_entries():
     arr_sync.logger.info("hello from test")
     assert any("hello from test" in line for line in arr_sync.get_log())
+
+
+import asyncio
+
+
+def test_scheduler_loop_ticks_periodically(monkeypatch):
+    calls = []
+    monkeypatch.setattr(arr_sync, "load_arr_config", lambda: {"poll_interval_seconds": 0.05})
+    monkeypatch.setattr(arr_sync, "try_start_sync", lambda source: calls.append(source))
+
+    async def run_briefly():
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(arr_sync.scheduler_loop(), timeout=0.2)
+
+    asyncio.run(run_briefly())
+
+    assert len(calls) >= 2
+    assert all(c == "periodic" for c in calls)
