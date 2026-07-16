@@ -129,6 +129,8 @@ class RadarrClient:
         return None
 
     def lookup_by_imdb(self, imdb_id: str) -> Optional[dict]:
+        # Radarr raises HTTP 500 (not 404) when the imdbId has no match, so
+        # HTTPError here means "not found," not a genuine server error.
         try:
             return self._get(f"/movie/lookup/imdb?imdbId={imdb_id}")
         except requests.HTTPError:
