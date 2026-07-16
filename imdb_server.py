@@ -11,8 +11,10 @@ import time
 import logging
 import threading
 import contextlib
+import asyncio
 
 from mcp_server import mcp
+from arr_sync import router as arr_sync_router, scheduler_loop, run_sync_once
 
 # Configure logging
 logging.basicConfig(
@@ -36,8 +38,14 @@ if os.path.exists("version.txt"):
 # since Starlette does not auto-propagate lifespan events into mounted sub-apps.
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    scheduler_task = asyncio.create_task(scheduler_loop())
     async with mcp.session_manager.run():
         yield
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(title="IMDb Watchlist Server for *arr", lifespan=lifespan)
 
@@ -58,6 +66,7 @@ mcp.settings.streamable_http_path = "/"
 mcp.settings.sse_path = "/"
 app.mount("/mcp", mcp.streamable_http_app())
 app.mount("/sse", mcp.sse_app())
+app.include_router(arr_sync_router)
 
 # Global cache
 CACHE_DIR = "data"
@@ -292,7 +301,9 @@ if __name__ == "__main__":
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--search", help="Search for a movie title in the local cache")
     parser.add_argument("--stats", action="store_true", help="Show statistics of the local cache")
-    
+    parser.add_argument("--sync-once", action="store_true",
+                         help="Run one Radarr/Sonarr sync cycle immediately and exit")
+
     args = parser.parse_args()
 
     if args.stats:
@@ -323,7 +334,12 @@ if __name__ == "__main__":
         if not found:
             print("No matches found in cache.")
         sys.exit(0)
-    
+
+    if args.sync_once:
+        result = run_sync_once()
+        print(json.dumps(result, indent=2))
+        sys.exit(0)
+
     if args.user_id:
         uid = get_user_id(args.user_id)
         if args.list:
