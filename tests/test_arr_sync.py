@@ -510,3 +510,16 @@ def test_scheduler_loop_ticks_periodically(monkeypatch):
 
     assert len(calls) >= 2
     assert all(c == "periodic" for c in calls)
+
+
+def test_scheduler_loop_survives_malformed_poll_interval(monkeypatch):
+    monkeypatch.setattr(
+        arr_sync, "load_arr_config", lambda: {"poll_interval_seconds": "not-a-number"}
+    )
+    monkeypatch.setattr(arr_sync, "try_start_sync", lambda source: None)
+
+    async def run_briefly():
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(arr_sync.scheduler_loop(), timeout=0.2)
+
+    asyncio.run(run_briefly())

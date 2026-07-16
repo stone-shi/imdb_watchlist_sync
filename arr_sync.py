@@ -438,9 +438,14 @@ def get_log() -> list:
 
 async def scheduler_loop():
     while True:
-        config = load_arr_config()
         try:
+            config = load_arr_config()
             try_start_sync(source="periodic")
+            # Coerce to a number here so a malformed (e.g. string) value in
+            # config.json is caught by the except below instead of raising
+            # unguarded from the asyncio.sleep() call outside this try block.
+            interval = float(config["poll_interval_seconds"])
         except Exception:
             logger.error("Error in scheduler tick", exc_info=True)
-        await asyncio.sleep(config["poll_interval_seconds"])
+            interval = DEFAULT_CONFIG["poll_interval_seconds"]
+        await asyncio.sleep(interval)
