@@ -587,3 +587,12 @@ def test_sync_page_escapes_log_content(monkeypatch):
 
     assert "<script>alert(1)</script>" not in response.text
     assert "&lt;script&gt;" in response.text
+
+
+def test_sync_page_escapes_error_content():
+    arr_sync._status["error"] = "<script>alert(2)</script>"
+
+    response = sync_client.get("/sync")
+
+    assert "<script>alert(2)</script>" not in response.text
+    assert "&lt;script&gt;" in response.text
