@@ -39,6 +39,7 @@ def test_load_arr_config_merges_file_over_defaults(tmp_path, monkeypatch):
     config_file = tmp_path / "config.json"
     config_file.write_text(json.dumps({
         "dry_run": False,
+        "sync_timeout_seconds": 1800,
         "radarr": {"url": "https://radarr.example.com", "api_key": "abc"},
     }))
     monkeypatch.setattr(arr_sync, "CONFIG_FILE", str(config_file))
@@ -46,6 +47,7 @@ def test_load_arr_config_merges_file_over_defaults(tmp_path, monkeypatch):
     config = arr_sync.load_arr_config()
 
     assert config["dry_run"] is False
+    assert config["sync_timeout_seconds"] == 1800
     assert config["radarr"]["url"] == "https://radarr.example.com"
     assert config["radarr"]["api_key"] == "abc"
     # Untouched radarr keys keep their defaults
@@ -62,6 +64,23 @@ def test_load_arr_config_invalid_json_falls_back_to_defaults(tmp_path, monkeypat
     config = arr_sync.load_arr_config()
 
     assert config["poll_interval_seconds"] == 3600
+
+
+def test_load_arr_config_malformed_service_section_falls_back_to_defaults(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({
+        "dry_run": False,
+        "radarr": "oops",
+    }))
+    monkeypatch.setattr(arr_sync, "CONFIG_FILE", str(config_file))
+
+    config = arr_sync.load_arr_config()
+
+    # Malformed radarr section is ignored, not allowed to crash the load...
+    assert config["radarr"]["quality_profile"] == "HD-1080p"
+    assert config["radarr"]["url"] == ""
+    # ...and other top-level keys from the same file are still applied.
+    assert config["dry_run"] is False
 
 
 def test_load_arr_config_env_overrides_file(tmp_path, monkeypatch):

@@ -63,7 +63,15 @@ def load_arr_config() -> dict:
                 "sync_timeout_seconds", config["sync_timeout_seconds"])
             config["dry_run"] = file_config.get("dry_run", config["dry_run"])
             for service in ("radarr", "sonarr"):
-                config[service].update(file_config.get(service, {}))
+                if service not in file_config:
+                    continue
+                service_value = file_config[service]
+                if isinstance(service_value, dict):
+                    config[service].update(service_value)
+                else:
+                    logger.warning(
+                        "Ignoring malformed %r section in %s (expected object, got %s)",
+                        service, CONFIG_FILE, type(service_value).__name__)
         except Exception:
             logger.warning("Failed to load %s, using defaults", CONFIG_FILE, exc_info=True)
 
