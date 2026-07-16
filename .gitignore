@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 watchlist_cache.json
 embedding_index.json
+config.json
 downloaded_files/
 .vscode/
 .idea/
