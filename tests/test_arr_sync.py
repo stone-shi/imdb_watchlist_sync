@@ -335,6 +335,26 @@ def test_sync_movies_adds_new_item():
     client.add_movie.assert_called_once()
 
 
+def test_sync_movies_dedupes_same_imdb_id_across_two_cached_users():
+    client = MagicMock()
+    client.get_library_imdb_ids.return_value = set()
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
+    items = [
+        {"imdb": "tt0133093", "title": "The Matrix"},
+        {"imdb": "tt0133093", "title": "The Matrix"},
+    ]
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), items, threading.Event())
+
+    assert counts["added"] == 1
+    assert counts["skipped_existing"] == 1
+    assert counts["failed"] == 0
+    assert client.add_movie.call_count == 1
+
+
 def test_sync_movies_counts_failed_lookup():
     client = MagicMock()
     client.get_library_imdb_ids.return_value = set()
@@ -455,6 +475,31 @@ def test_try_start_sync_signals_stop_after_timeout(monkeypatch):
     assert stop_seen.wait(timeout=2)
     arr_sync._current_thread.join(timeout=2)
     assert arr_sync.get_status()["state"] == "stopped"
+
+
+def test_try_start_sync_survives_config_load_error_while_running(monkeypatch):
+    release = threading.Event()
+
+    def slow_sync(source, stop_event):
+        release.wait(timeout=2)
+        return {"radarr": {}, "sonarr": {}}
+
+    monkeypatch.setattr(arr_sync, "_run_sync", slow_sync)
+
+    assert arr_sync.try_start_sync("periodic") is True
+    time.sleep(0.05)  # let the thread actually start and set state to "running"
+
+    def broken_config():
+        raise ValueError("bad env var")
+
+    monkeypatch.setattr(arr_sync, "load_arr_config", broken_config)
+
+    assert arr_sync.try_start_sync("manual") is False
+    # Original sync is left alone, not incorrectly stopped.
+    assert arr_sync.get_status()["state"] == "running"
+
+    release.set()
+    arr_sync._current_thread.join(timeout=2)
 
 
 def test_request_stop_noop_when_idle():

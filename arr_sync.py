@@ -262,6 +262,7 @@ def _sync_movies(config: dict, items: list, stop_event) -> dict:
             )
             logger.info("Added movie: %s", movie.get("title"))
             counts["added"] += 1
+            existing_imdb_ids.add(imdb_id)
         except Exception:
             logger.error("Failed to add movie %s (%s)", item.get("title"), imdb_id, exc_info=True)
             counts["failed"] += 1
@@ -329,6 +330,7 @@ def _sync_tv(config: dict, items: list, stop_event) -> dict:
             )
             logger.info("Added series: %s", series.get("title"))
             counts["added"] += 1
+            existing_imdb_ids.add(imdb_id)
         except Exception:
             logger.error("Failed to add series %s (%s)", item.get("title"), imdb_id, exc_info=True)
             counts["failed"] += 1
@@ -398,8 +400,13 @@ def try_start_sync(source: str) -> bool:
     with _lock:
         if _current_thread is not None and _current_thread.is_alive():
             elapsed = time.time() - (_status["started_at"] or time.time())
-            config = load_arr_config()
-            if elapsed > config["sync_timeout_seconds"] and not _stop_event.is_set():
+            try:
+                config = load_arr_config()
+                timed_out = elapsed > config["sync_timeout_seconds"]
+            except Exception:
+                logger.error("Failed to load config while checking sync timeout", exc_info=True)
+                timed_out = False
+            if timed_out and not _stop_event.is_set():
                 logger.warning("Sync running %.0fs, exceeds timeout %ds; requesting stop",
                                 elapsed, config["sync_timeout_seconds"])
                 _stop_event.set()
