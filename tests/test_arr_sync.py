@@ -195,3 +195,62 @@ def test_radarr_add_movie_builds_payload_from_lookup_result():
     assert sent_payload["minimumAvailability"] == "announced"
     assert sent_payload["monitored"] is True
     assert sent_payload["addOptions"] == {"searchForMovie": True}
+
+
+def test_sonarr_get_library_imdb_ids():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    series = [{"imdbId": "tt1"}, {"imdbId": "tt2"}, {"title": "no imdb id"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(series)):
+        assert client.get_library_imdb_ids() == {"tt1", "tt2"}
+
+
+def test_sonarr_get_excluded_tvdb_ids():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    exclusions = [{"tvdbId": 111}, {"tvdbId": 222}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(exclusions)):
+        assert client.get_excluded_tvdb_ids() == {111, 222}
+
+
+def test_sonarr_resolve_quality_profile_id_found():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    profiles = [{"id": 1, "name": "Any"}, {"id": 4, "name": "HD-1080p"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(profiles)):
+        assert client.resolve_quality_profile_id("HD-1080p") == 4
+
+
+def test_sonarr_resolve_root_folder_path_auto_selects_sole_folder():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    with patch("arr_sync.requests.get", return_value=_fake_response([{"id": 2, "path": "/media/TVs"}])):
+        assert client.resolve_root_folder_path(None) == "/media/TVs"
+
+
+def test_sonarr_lookup_by_imdb_found_returns_first_result():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    series = [{"title": "Breaking Bad", "year": 2008, "tvdbId": 81189, "imdbId": "tt0903747"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(series)):
+        assert client.lookup_by_imdb("tt0903747") == series[0]
+
+
+def test_sonarr_lookup_by_imdb_not_found_returns_none():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    with patch("arr_sync.requests.get", return_value=_fake_response([])):
+        assert client.lookup_by_imdb("tt0000000") is None
+
+
+def test_sonarr_add_series_builds_payload_from_lookup_result():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    series = {"title": "Breaking Bad", "year": 2008, "tvdbId": 81189, "imdbId": "tt0903747"}
+    with patch("arr_sync.requests.post", return_value=_fake_response({"id": 5})) as mock_post:
+        result = client.add_series(
+            series, quality_profile_id=4, root_folder_path="/media/TVs",
+            series_type="standard", season_folder=True, monitor="all", search_on_add=True)
+    assert result == {"id": 5}
+    sent_payload = mock_post.call_args.kwargs["json"]
+    assert sent_payload["title"] == "Breaking Bad"
+    assert sent_payload["tvdbId"] == 81189
+    assert sent_payload["qualityProfileId"] == 4
+    assert sent_payload["rootFolderPath"] == "/media/TVs"
+    assert sent_payload["seriesType"] == "standard"
+    assert sent_payload["seasonFolder"] is True
+    assert sent_payload["monitored"] is True
+    assert sent_payload["addOptions"] == {"monitor": "all", "searchForMissingEpisodes": True}

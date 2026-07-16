@@ -145,3 +145,54 @@ class RadarrClient:
         payload["minimumAvailability"] = minimum_availability
         payload["addOptions"] = {"searchForMovie": search_on_add}
         return self._post("/movie", payload)
+
+
+class SonarrClient:
+    def __init__(self, url: str, api_key: str):
+        self.base_url = url.rstrip("/")
+        self.headers = {"X-Api-Key": api_key}
+
+    def _get(self, path: str):
+        resp = requests.get(f"{self.base_url}/api/v3{path}", headers=self.headers, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _post(self, path: str, payload: dict):
+        resp = requests.post(f"{self.base_url}/api/v3{path}", headers=self.headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_library_imdb_ids(self) -> set:
+        return {s["imdbId"] for s in self._get("/series") if s.get("imdbId")}
+
+    def get_excluded_tvdb_ids(self) -> set:
+        return {e["tvdbId"] for e in self._get("/importlistexclusion") if e.get("tvdbId")}
+
+    def resolve_quality_profile_id(self, name: str) -> Optional[int]:
+        for profile in self._get("/qualityprofile"):
+            if profile["name"] == name:
+                return profile["id"]
+        return None
+
+    def resolve_root_folder_path(self, configured: Optional[str]) -> Optional[str]:
+        if configured:
+            return configured
+        folders = self._get("/rootfolder")
+        if len(folders) == 1:
+            return folders[0]["path"]
+        return None
+
+    def lookup_by_imdb(self, imdb_id: str) -> Optional[dict]:
+        results = self._get(f"/series/lookup?term=imdb:{imdb_id}")
+        return results[0] if results else None
+
+    def add_series(self, series: dict, quality_profile_id: int, root_folder_path: str,
+                    series_type: str, season_folder: bool, monitor: str, search_on_add: bool) -> dict:
+        payload = dict(series)
+        payload["qualityProfileId"] = quality_profile_id
+        payload["rootFolderPath"] = root_folder_path
+        payload["seriesType"] = series_type
+        payload["seasonFolder"] = season_folder
+        payload["monitored"] = True
+        payload["addOptions"] = {"monitor": monitor, "searchForMissingEpisodes": search_on_add}
+        return self._post("/series", payload)
