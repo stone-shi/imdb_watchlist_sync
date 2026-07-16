@@ -392,3 +392,103 @@ def test_run_sync_splits_movie_and_tv_items(monkeypatch):
     assert len(movie_calls[0]) == 1 and movie_calls[0][0]["title"] == "A Movie"
     assert len(tv_calls[0]) == 1 and tv_calls[0][0]["title"] == "A Show"
     assert result == {"radarr": {"added": 0}, "sonarr": {"added": 0}, "dry_run": True}
+
+
+import time
+
+
+@pytest.fixture(autouse=True)
+def reset_sync_state():
+    arr_sync._current_thread = None
+    arr_sync._stop_event = threading.Event()
+    arr_sync._status = {
+        "state": "idle", "started_at": None, "finished_at": None,
+        "source": None, "result": None, "error": None,
+    }
+    arr_sync._log.clear()
+    yield
+
+
+def test_try_start_sync_starts_when_idle(monkeypatch):
+    monkeypatch.setattr(arr_sync, "_run_sync", lambda source, stop_event: {"radarr": {}, "sonarr": {}})
+
+    started = arr_sync.try_start_sync("manual")
+
+    assert started is True
+    arr_sync._current_thread.join(timeout=2)
+    assert arr_sync.get_status()["state"] == "success"
+
+
+def test_try_start_sync_rejects_second_trigger_while_running(monkeypatch):
+    release = threading.Event()
+
+    def slow_sync(source, stop_event):
+        release.wait(timeout=2)
+        return {"radarr": {}, "sonarr": {}}
+
+    monkeypatch.setattr(arr_sync, "_run_sync", slow_sync)
+
+    assert arr_sync.try_start_sync("periodic") is True
+    time.sleep(0.05)  # let the thread actually start and set state to "running"
+    assert arr_sync.try_start_sync("manual") is False
+    assert arr_sync.get_status()["state"] == "running"
+
+    release.set()
+    arr_sync._current_thread.join(timeout=2)
+
+
+def test_try_start_sync_signals_stop_after_timeout(monkeypatch):
+    stop_seen = threading.Event()
+
+    def slow_sync(source, stop_event):
+        stop_event.wait(timeout=2)
+        stop_seen.set()
+        return {"radarr": {}, "sonarr": {}}
+
+    monkeypatch.setattr(arr_sync, "_run_sync", slow_sync)
+    monkeypatch.setattr(arr_sync, "load_arr_config", lambda: {"sync_timeout_seconds": 0.05})
+
+    assert arr_sync.try_start_sync("periodic") is True
+    time.sleep(0.2)  # exceed the 0.05s timeout
+
+    assert arr_sync.try_start_sync("periodic") is False
+    assert stop_seen.wait(timeout=2)
+    arr_sync._current_thread.join(timeout=2)
+    assert arr_sync.get_status()["state"] == "stopped"
+
+
+def test_request_stop_noop_when_idle():
+    assert arr_sync.request_stop() is False
+
+
+def test_request_stop_sets_event_when_running(monkeypatch):
+    release = threading.Event()
+    monkeypatch.setattr(arr_sync, "_run_sync", lambda source, stop_event: (release.wait(timeout=2), {"radarr": {}, "sonarr": {}})[1])
+
+    arr_sync.try_start_sync("manual")
+    time.sleep(0.05)
+
+    assert arr_sync.request_stop() is True
+    assert arr_sync.get_status()["state"] == "stopping"
+
+    release.set()
+    arr_sync._current_thread.join(timeout=2)
+
+
+def test_run_sync_crash_sets_error_state(monkeypatch):
+    def broken_sync(source, stop_event):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(arr_sync, "_run_sync", broken_sync)
+
+    arr_sync.try_start_sync("manual")
+    arr_sync._current_thread.join(timeout=2)
+
+    status = arr_sync.get_status()
+    assert status["state"] == "error"
+    assert "boom" in status["error"]
+
+
+def test_get_log_returns_recent_entries():
+    arr_sync.logger.info("hello from test")
+    assert any("hello from test" in line for line in arr_sync.get_log())

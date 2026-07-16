@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections import deque
 from typing import Optional
 
@@ -362,3 +363,73 @@ def _run_sync(source: str, stop_event) -> dict:
 
 def run_sync_once(source: str = "cli") -> dict:
     return _run_sync(source, threading.Event())
+
+
+_lock = threading.Lock()
+_current_thread = None
+_stop_event = threading.Event()
+_status = {
+    "state": "idle", "started_at": None, "finished_at": None,
+    "source": None, "result": None, "error": None,
+}
+
+
+def _thread_target(source: str, stop_event: threading.Event):
+    try:
+        result = _run_sync(source, stop_event)
+        with _lock:
+            _status["state"] = "stopped" if stop_event.is_set() else "success"
+            _status["result"] = result
+            _status["finished_at"] = time.time()
+    except Exception as e:
+        logger.error("Sync thread crashed", exc_info=True)
+        with _lock:
+            _status["state"] = "error"
+            _status["error"] = str(e)
+            _status["finished_at"] = time.time()
+
+
+def try_start_sync(source: str) -> bool:
+    global _current_thread, _stop_event
+    with _lock:
+        if _current_thread is not None and _current_thread.is_alive():
+            elapsed = time.time() - (_status["started_at"] or time.time())
+            config = load_arr_config()
+            if elapsed > config["sync_timeout_seconds"] and not _stop_event.is_set():
+                logger.warning("Sync running %.0fs, exceeds timeout %ds; requesting stop",
+                                elapsed, config["sync_timeout_seconds"])
+                _stop_event.set()
+                _status["state"] = "stopping (timed out)"
+            else:
+                logger.info("Sync already running (source=%s); skipping trigger from %s",
+                             _status.get("source"), source)
+            return False
+
+        _stop_event = threading.Event()
+        _status["state"] = "running"
+        _status["started_at"] = time.time()
+        _status["finished_at"] = None
+        _status["source"] = source
+        _status["result"] = None
+        _status["error"] = None
+        _current_thread = threading.Thread(target=_thread_target, args=(source, _stop_event), daemon=True)
+        _current_thread.start()
+        return True
+
+
+def request_stop() -> bool:
+    with _lock:
+        if _current_thread is not None and _current_thread.is_alive():
+            _stop_event.set()
+            _status["state"] = "stopping"
+            return True
+        return False
+
+
+def get_status() -> dict:
+    with _lock:
+        return dict(_status)
+
+
+def get_log() -> list:
+    return list(_log)
