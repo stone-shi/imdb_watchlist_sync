@@ -276,13 +276,13 @@ def _sync_movies(config: dict, items: list, stop_event) -> dict:
         existing_movie = existing_library.get(imdb_id) if imdb_id else None
         if not imdb_id or existing_movie is not None:
             if (existing_movie is not None and tag_id is not None
-                    and tag_id not in existing_movie.get("tags", [])):
+                    and tag_id not in (existing_movie.get("tags") or [])):
                 if config["dry_run"]:
                     logger.info("[dry run] would tag existing movie: %s", existing_movie.get("title"))
                     counts["would_tag"] += 1
                 else:
                     try:
-                        updated_tags = list(existing_movie.get("tags", [])) + [tag_id]
+                        updated_tags = list(existing_movie.get("tags") or []) + [tag_id]
                         client.update_movie({**existing_movie, "tags": updated_tags})
                         existing_movie["tags"] = updated_tags
                         logger.info("Tagged existing movie: %s", existing_movie.get("title"))
