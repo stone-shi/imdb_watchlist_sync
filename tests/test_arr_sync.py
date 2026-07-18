@@ -588,6 +588,105 @@ def test_run_sync_splits_movie_and_tv_items(monkeypatch):
     assert result == {"radarr": {"added": 0}, "sonarr": {"added": 0}, "dry_run": True}
 
 
+def test_sync_tv_tags_new_item_on_add():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {}
+    client.get_excluded_tvdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/TVs"
+    client.get_or_create_tag_id.return_value = 99
+    client.lookup_by_imdb.return_value = {"title": "Breaking Bad", "tvdbId": 81189, "tags": []}
+    client.add_series.return_value = {"id": 7, "title": "Breaking Bad", "tvdbId": 81189, "tags": [99]}
+    with patch.object(arr_sync, "SonarrClient", lambda url, key: client):
+        counts = arr_sync._sync_tv(_base_config(), [{"imdb": "tt0903747", "title": "Breaking Bad"}],
+                                     threading.Event())
+
+    assert counts["added"] == 1
+    sent_series = client.add_series.call_args.args[0]
+    assert sent_series["tags"] == [99]
+
+
+def test_sync_tv_tags_existing_untagged_item():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Breaking Bad", "tags": []}}
+    client.get_excluded_tvdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/TVs"
+    client.get_or_create_tag_id.return_value = 99
+    with patch.object(arr_sync, "SonarrClient", lambda url, key: client):
+        counts = arr_sync._sync_tv(_base_config(), [{"imdb": "tt1", "title": "Breaking Bad"}],
+                                     threading.Event())
+
+    assert counts["skipped_existing"] == 1
+    assert counts["tagged"] == 1
+    client.update_series.assert_called_once_with({"id": 501, "title": "Breaking Bad", "tags": [99]})
+
+
+def test_sync_tv_does_not_retag_already_tagged_item():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Breaking Bad", "tags": [99]}}
+    client.get_excluded_tvdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/TVs"
+    client.get_or_create_tag_id.return_value = 99
+    with patch.object(arr_sync, "SonarrClient", lambda url, key: client):
+        counts = arr_sync._sync_tv(_base_config(), [{"imdb": "tt1", "title": "Breaking Bad"}],
+                                     threading.Event())
+
+    assert counts["skipped_existing"] == 1
+    assert counts["tagged"] == 0
+    client.update_series.assert_not_called()
+
+
+def test_sync_tv_dry_run_would_tag_existing_item():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Breaking Bad", "tags": []}}
+    client.get_excluded_tvdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/TVs"
+    client.get_or_create_tag_id.return_value = 99
+    with patch.object(arr_sync, "SonarrClient", lambda url, key: client):
+        counts = arr_sync._sync_tv(_base_config(dry_run=True),
+                                     [{"imdb": "tt1", "title": "Breaking Bad"}], threading.Event())
+
+    assert counts["would_tag"] == 1
+    client.update_series.assert_not_called()
+
+
+def test_sync_tv_tag_put_failure_does_not_abort_cycle():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Breaking Bad", "tags": []}}
+    client.get_excluded_tvdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/TVs"
+    client.get_or_create_tag_id.return_value = 99
+    client.update_series.side_effect = RuntimeError("boom")
+    with patch.object(arr_sync, "SonarrClient", lambda url, key: client):
+        counts = arr_sync._sync_tv(_base_config(), [{"imdb": "tt1", "title": "Breaking Bad"}],
+                                     threading.Event())
+
+    assert counts["skipped_existing"] == 1
+    assert counts["tagged"] == 0
+
+
+def test_sync_tv_tag_resolution_failure_still_allows_add():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {}
+    client.get_excluded_tvdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/TVs"
+    client.get_or_create_tag_id.side_effect = RuntimeError("tag api down")
+    client.lookup_by_imdb.return_value = {"title": "Breaking Bad", "tvdbId": 81189, "tags": []}
+    client.add_series.return_value = {"id": 7, "title": "Breaking Bad", "tvdbId": 81189, "tags": []}
+    with patch.object(arr_sync, "SonarrClient", lambda url, key: client):
+        counts = arr_sync._sync_tv(_base_config(), [{"imdb": "tt0903747", "title": "Breaking Bad"}],
+                                     threading.Event())
+
+    assert counts["added"] == 1
+    sent_series = client.add_series.call_args.args[0]
+    assert sent_series["tags"] == []
+
+
 import time
 
 
