@@ -588,6 +588,24 @@ def test_run_sync_splits_movie_and_tv_items(monkeypatch):
     assert result == {"radarr": {"added": 0}, "sonarr": {"added": 0}, "dry_run": True}
 
 
+def test_run_sync_returns_full_counts_shape_when_stopped_before_tv_phase(monkeypatch):
+    cache = {"ur1": {"items": [{"imdb": "tt1", "title": "A Movie", "type": "movie"}]}}
+    monkeypatch.setattr("imdb_server.load_cache", lambda: cache)
+    monkeypatch.setattr(arr_sync, "load_arr_config", lambda: _base_config(dry_run=True))
+    monkeypatch.setattr(arr_sync, "_sync_movies", lambda config, items, stop_event: {"added": 0})
+    tv_calls = []
+    monkeypatch.setattr(arr_sync, "_sync_tv",
+                         lambda config, items, stop_event: tv_calls.append(items) or {"added": 0})
+
+    stop_event = threading.Event()
+    stop_event.set()
+    result = arr_sync._run_sync("test", stop_event)
+
+    assert tv_calls == []
+    assert result["sonarr"] == {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0,
+                                 "failed": 0, "tagged": 0, "would_tag": 0}
+
+
 def test_sync_tv_tags_new_item_on_add():
     client = MagicMock()
     client.get_library_by_imdb.return_value = {}

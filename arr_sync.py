@@ -441,7 +441,8 @@ def _run_sync(source: str, stop_event) -> dict:
                 source, config["dry_run"], len(movie_items), len(tv_items))
 
     radarr_counts = _sync_movies(config, movie_items, stop_event)
-    sonarr_counts = {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0, "failed": 0}
+    sonarr_counts = {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0,
+                      "failed": 0, "tagged": 0, "would_tag": 0}
     if not stop_event.is_set():
         sonarr_counts = _sync_tv(config, tv_items, stop_event)
 
