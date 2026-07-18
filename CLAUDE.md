@@ -52,6 +52,8 @@ Cache is a single JSON file: `{user_id: {"timestamp": float, "items": [...]}}`. 
 
 Exclusion lists on Radarr/Sonarr are keyed by `tmdbId`/`tvdbId`, not `imdbId` — so checking a candidate against them requires the `/movie/lookup/imdb` or `/series/lookup?term=imdb:...` metadata call first. Checking whether an item is *already in the library* does not need this lookup, since both APIs expose `imdbId` directly on library items.
 
+Every item added to Radarr/Sonarr by this module — and, on every cycle, any watchlist-matched item already in the library — gets tagged `imdb_watchlist` there. The tag name is a hardcoded constant, not configurable. It's resolved (or created if missing) once per service per cycle via `get_or_create_tag_id`; if that call fails, the cycle logs a warning and proceeds without tagging rather than blocking adds — tagging is additive, never a gate on the add/skip/exclude logic. A single item's tag update failing is likewise logged and skipped, not raised.
+
 ## Testing
 
 Tests live in `tests/test_imdb_server.py` and use FastAPI's `TestClient` against the real `app` object, patching `imdb_server.load_cache`/`get_watchlist` (see the `patch_cache`/`patch_watchlist` helpers in that file) rather than hitting IMDb or spinning up a browser. There is no test coverage for `mcp_server.py` or `embedding.py` yet.
