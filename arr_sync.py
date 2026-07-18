@@ -183,8 +183,20 @@ class SonarrClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_library_imdb_ids(self) -> set:
-        return {s["imdbId"] for s in self._get("/series") if s.get("imdbId")}
+    def _put(self, path: str, payload: dict):
+        resp = requests.put(f"{self.base_url}/api/v3{path}", headers=self.headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_library_by_imdb(self) -> dict:
+        return {s["imdbId"]: s for s in self._get("/series") if s.get("imdbId")}
+
+    def get_or_create_tag_id(self, label: str) -> Optional[int]:
+        for tag in self._get("/tag"):
+            if tag.get("label", "").lower() == label.lower():
+                return tag["id"]
+        created = self._post("/tag", {"label": label})
+        return created["id"]
 
     def get_excluded_tvdb_ids(self) -> set:
         return {e["tvdbId"] for e in self._get("/importlistexclusion") if e.get("tvdbId")}
@@ -217,6 +229,9 @@ class SonarrClient:
         payload["monitored"] = True
         payload["addOptions"] = {"monitor": monitor, "searchForMissingEpisodes": search_on_add}
         return self._post("/series", payload)
+
+    def update_series(self, series: dict) -> dict:
+        return self._put(f"/series/{series['id']}", series)
 
 
 def _sync_movies(config: dict, items: list, stop_event) -> dict:

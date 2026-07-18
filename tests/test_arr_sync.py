@@ -231,11 +231,45 @@ def test_radarr_add_movie_builds_payload_from_lookup_result():
     assert sent_payload["addOptions"] == {"searchForMovie": True}
 
 
-def test_sonarr_get_library_imdb_ids():
+def test_sonarr_get_library_by_imdb():
     client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
-    series = [{"imdbId": "tt1"}, {"imdbId": "tt2"}, {"title": "no imdb id"}]
+    series = [{"id": 1, "imdbId": "tt1", "tags": []}, {"id": 2, "imdbId": "tt2", "tags": [5]},
+              {"id": 3, "title": "no imdb id"}]
     with patch("arr_sync.requests.get", return_value=_fake_response(series)):
-        assert client.get_library_imdb_ids() == {"tt1", "tt2"}
+        assert client.get_library_by_imdb() == {"tt1": series[0], "tt2": series[1]}
+
+
+def test_sonarr_get_or_create_tag_id_returns_existing_tag():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    tags = [{"id": 1, "label": "other"}, {"id": 7, "label": "IMDB_Watchlist"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(tags)):
+        with patch("arr_sync.requests.post") as mock_post:
+            result = client.get_or_create_tag_id("imdb_watchlist")
+    assert result == 7
+    mock_post.assert_not_called()
+
+
+def test_sonarr_get_or_create_tag_id_creates_missing_tag():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    with patch("arr_sync.requests.get", return_value=_fake_response([])):
+        with patch("arr_sync.requests.post",
+                    return_value=_fake_response({"id": 9, "label": "imdb_watchlist"})) as mock_post:
+            result = client.get_or_create_tag_id("imdb_watchlist")
+    assert result == 9
+    mock_post.assert_called_once_with(
+        "https://sonarr.example.com/api/v3/tag", headers={"X-Api-Key": "key"},
+        json={"label": "imdb_watchlist"}, timeout=30)
+
+
+def test_sonarr_update_series_puts_full_payload():
+    client = arr_sync.SonarrClient("https://sonarr.example.com", "key")
+    series = {"id": 501, "title": "Breaking Bad", "tags": [7]}
+    with patch("arr_sync.requests.put", return_value=_fake_response(series)) as mock_put:
+        result = client.update_series(series)
+    assert result == series
+    mock_put.assert_called_once_with(
+        "https://sonarr.example.com/api/v3/series/501", headers={"X-Api-Key": "key"},
+        json=series, timeout=30)
 
 
 def test_sonarr_get_excluded_tvdb_ids():
