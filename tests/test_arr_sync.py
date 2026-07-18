@@ -898,6 +898,13 @@ def test_sync_page_renders_html_with_buttons():
     assert 'action="/sync/stop"' in response.text
 
 
+def test_sync_page_renders_tagged_and_would_tag_columns():
+    response = sync_client.get("/sync")
+    assert response.status_code == 200
+    assert "<th>Tagged</th>" in response.text
+    assert "<th>Would tag" in response.text
+
+
 def test_sync_page_escapes_log_content(monkeypatch):
     monkeypatch.setattr(arr_sync, "_log", type(arr_sync._log)(["<script>alert(1)</script>"], maxlen=500))
 

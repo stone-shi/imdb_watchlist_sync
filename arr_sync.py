@@ -570,7 +570,9 @@ def _render_sync_page() -> str:
             f"<td>{counts.get('would_add', '-')}</td>"
             f"<td>{counts.get('skipped_existing', '-')}</td>"
             f"<td>{counts.get('skipped_excluded', '-')}</td>"
-            f"<td>{counts.get('failed', '-')}</td></tr>"
+            f"<td>{counts.get('failed', '-')}</td>"
+            f"<td>{counts.get('tagged', '-')}</td>"
+            f"<td>{counts.get('would_tag', '-')}</td></tr>"
         )
 
     return f"""<!DOCTYPE html>
@@ -594,7 +596,7 @@ def _render_sync_page() -> str:
   <p><strong>Finished:</strong> {fmt_time(status.get('finished_at'))}</p>
   {error_html}
   <table>
-    <tr><th>Service</th><th>Added</th><th>Would add (dry run)</th><th>Skipped (existing)</th><th>Skipped (excluded)</th><th>Failed</th></tr>
+    <tr><th>Service</th><th>Added</th><th>Would add (dry run)</th><th>Skipped (existing)</th><th>Skipped (excluded)</th><th>Failed</th><th>Tagged</th><th>Would tag (dry run)</th></tr>
     {counts_row("Radarr", radarr_counts)}
     {counts_row("Sonarr", sonarr_counts)}
   </table>
