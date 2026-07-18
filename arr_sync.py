@@ -235,7 +235,8 @@ class SonarrClient:
 
 
 def _sync_movies(config: dict, items: list, stop_event) -> dict:
-    counts = {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0, "failed": 0}
+    counts = {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0,
+              "failed": 0, "tagged": 0, "would_tag": 0}
     radarr_config = config["radarr"]
     if not radarr_config.get("url") or not radarr_config.get("api_key"):
         logger.info("Radarr not configured, skipping movies")
@@ -243,7 +244,7 @@ def _sync_movies(config: dict, items: list, stop_event) -> dict:
 
     client = RadarrClient(radarr_config["url"], radarr_config["api_key"])
     try:
-        existing_imdb_ids = client.get_library_imdb_ids()
+        existing_library = client.get_library_by_imdb()
         excluded_tmdb_ids = client.get_excluded_tmdb_ids()
         quality_profile_id = client.resolve_quality_profile_id(radarr_config["quality_profile"])
         root_folder_path = client.resolve_root_folder_path(radarr_config["root_folder_path"])
@@ -259,13 +260,36 @@ def _sync_movies(config: dict, items: list, stop_event) -> dict:
         logger.error("Radarr root folder is ambiguous or unset, skipping movies")
         return counts
 
+    try:
+        tag_id = client.get_or_create_tag_id("imdb_watchlist")
+    except Exception:
+        logger.warning("Failed to resolve imdb_watchlist tag on Radarr, continuing without tagging",
+                        exc_info=True)
+        tag_id = None
+
     for item in items:
         if stop_event.is_set():
             logger.info("Stop requested, halting Radarr sync early")
             break
 
         imdb_id = item.get("imdb") or item.get("imdbId") or item.get("imdb_id")
-        if not imdb_id or imdb_id in existing_imdb_ids:
+        existing_movie = existing_library.get(imdb_id) if imdb_id else None
+        if not imdb_id or existing_movie is not None:
+            if (existing_movie is not None and tag_id is not None
+                    and tag_id not in existing_movie.get("tags", [])):
+                if config["dry_run"]:
+                    logger.info("[dry run] would tag existing movie: %s", existing_movie.get("title"))
+                    counts["would_tag"] += 1
+                else:
+                    try:
+                        updated_tags = list(existing_movie.get("tags", [])) + [tag_id]
+                        client.update_movie({**existing_movie, "tags": updated_tags})
+                        existing_movie["tags"] = updated_tags
+                        logger.info("Tagged existing movie: %s", existing_movie.get("title"))
+                        counts["tagged"] += 1
+                    except Exception:
+                        logger.error("Failed to tag existing movie %s (%s)",
+                                      existing_movie.get("title"), imdb_id, exc_info=True)
             counts["skipped_existing"] += 1
             continue
 
@@ -283,7 +307,9 @@ def _sync_movies(config: dict, items: list, stop_event) -> dict:
                 logger.info("[dry run] would add movie: %s", movie.get("title"))
                 counts["would_add"] += 1
                 continue
-            client.add_movie(
+            if tag_id is not None:
+                movie["tags"] = [tag_id]
+            added = client.add_movie(
                 movie,
                 quality_profile_id=quality_profile_id,
                 root_folder_path=root_folder_path,
@@ -292,7 +318,7 @@ def _sync_movies(config: dict, items: list, stop_event) -> dict:
             )
             logger.info("Added movie: %s", movie.get("title"))
             counts["added"] += 1
-            existing_imdb_ids.add(imdb_id)
+            existing_library[imdb_id] = added
         except Exception:
             logger.error("Failed to add movie %s (%s)", item.get("title"), imdb_id, exc_info=True)
             counts["failed"] += 1

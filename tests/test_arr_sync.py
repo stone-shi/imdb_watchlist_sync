@@ -339,50 +339,50 @@ def _base_config(**overrides):
     return config
 
 
-def test_sync_movies_skips_items_already_in_library(monkeypatch):
+def test_sync_movies_skips_items_already_in_library():
     client = MagicMock()
-    client.get_library_imdb_ids.return_value = {"tt1"}
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Already Have It", "tags": []}}
     client.get_excluded_tmdb_ids.return_value = set()
     client.resolve_quality_profile_id.return_value = 4
     client.resolve_root_folder_path.return_value = "/media/Movies"
-    monkeypatch.setattr(arr_sync, "RadarrClient", lambda url, key: client)
-
-    counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "Already Have It"}],
-                                     threading.Event())
+    client.get_or_create_tag_id.return_value = None
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "Already Have It"}],
+                                         threading.Event())
 
     assert counts["skipped_existing"] == 1
     assert counts["added"] == 0
     client.lookup_by_imdb.assert_not_called()
 
 
-def test_sync_movies_skips_excluded_items(monkeypatch):
+def test_sync_movies_skips_excluded_items():
     client = MagicMock()
-    client.get_library_imdb_ids.return_value = set()
+    client.get_library_by_imdb.return_value = {}
     client.get_excluded_tmdb_ids.return_value = {603}
     client.resolve_quality_profile_id.return_value = 4
     client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = None
     client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
-    monkeypatch.setattr(arr_sync, "RadarrClient", lambda url, key: client)
-
-    counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt0133093", "title": "The Matrix"}],
-                                     threading.Event())
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt0133093", "title": "The Matrix"}],
+                                         threading.Event())
 
     assert counts["skipped_excluded"] == 1
     assert counts["added"] == 0
     client.add_movie.assert_not_called()
 
 
-def test_sync_movies_dry_run_does_not_call_add(monkeypatch):
+def test_sync_movies_dry_run_does_not_call_add():
     client = MagicMock()
-    client.get_library_imdb_ids.return_value = set()
+    client.get_library_by_imdb.return_value = {}
     client.get_excluded_tmdb_ids.return_value = set()
     client.resolve_quality_profile_id.return_value = 4
     client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = None
     client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
-    monkeypatch.setattr(arr_sync, "RadarrClient", lambda url, key: client)
-
-    counts = arr_sync._sync_movies(_base_config(dry_run=True),
-                                     [{"imdb": "tt0133093", "title": "The Matrix"}], threading.Event())
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(dry_run=True),
+                                         [{"imdb": "tt0133093", "title": "The Matrix"}], threading.Event())
 
     assert counts["would_add"] == 1
     client.add_movie.assert_not_called()
@@ -390,11 +390,13 @@ def test_sync_movies_dry_run_does_not_call_add(monkeypatch):
 
 def test_sync_movies_adds_new_item():
     client = MagicMock()
-    client.get_library_imdb_ids.return_value = set()
+    client.get_library_by_imdb.return_value = {}
     client.get_excluded_tmdb_ids.return_value = set()
     client.resolve_quality_profile_id.return_value = 4
     client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = None
     client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
+    client.add_movie.return_value = {"id": 42, "title": "The Matrix", "tmdbId": 603, "tags": []}
     with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
         counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt0133093", "title": "The Matrix"}],
                                          threading.Event())
@@ -405,11 +407,13 @@ def test_sync_movies_adds_new_item():
 
 def test_sync_movies_dedupes_same_imdb_id_across_two_cached_users():
     client = MagicMock()
-    client.get_library_imdb_ids.return_value = set()
+    client.get_library_by_imdb.return_value = {}
     client.get_excluded_tmdb_ids.return_value = set()
     client.resolve_quality_profile_id.return_value = 4
     client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = None
     client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603}
+    client.add_movie.return_value = {"id": 42, "title": "The Matrix", "tmdbId": 603, "tags": []}
     items = [
         {"imdb": "tt0133093", "title": "The Matrix"},
         {"imdb": "tt0133093", "title": "The Matrix"},
@@ -425,10 +429,11 @@ def test_sync_movies_dedupes_same_imdb_id_across_two_cached_users():
 
 def test_sync_movies_counts_failed_lookup():
     client = MagicMock()
-    client.get_library_imdb_ids.return_value = set()
+    client.get_library_by_imdb.return_value = {}
     client.get_excluded_tmdb_ids.return_value = set()
     client.resolve_quality_profile_id.return_value = 4
     client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = None
     client.lookup_by_imdb.return_value = None
     with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
         counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt9999999", "title": "Unknown"}],
@@ -439,16 +444,18 @@ def test_sync_movies_counts_failed_lookup():
 
 def test_sync_movies_stops_early_when_stop_event_set():
     client = MagicMock()
-    client.get_library_imdb_ids.return_value = set()
+    client.get_library_by_imdb.return_value = {}
     client.get_excluded_tmdb_ids.return_value = set()
     client.resolve_quality_profile_id.return_value = 4
     client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = None
     stop_event = threading.Event()
     stop_event.set()
     with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
         counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "X"}], stop_event)
 
-    assert counts == {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0, "failed": 0}
+    assert counts == {"added": 0, "would_add": 0, "skipped_existing": 0, "skipped_excluded": 0,
+                       "failed": 0, "tagged": 0, "would_tag": 0}
     client.lookup_by_imdb.assert_not_called()
 
 
@@ -457,6 +464,105 @@ def test_sync_movies_skips_when_radarr_not_configured():
     config["radarr"]["url"] = ""
     counts = arr_sync._sync_movies(config, [{"imdb": "tt1", "title": "X"}], threading.Event())
     assert counts["added"] == 0
+
+
+def test_sync_movies_tags_new_item_on_add():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {}
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = 99
+    client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603, "tags": []}
+    client.add_movie.return_value = {"id": 42, "title": "The Matrix", "tmdbId": 603, "tags": [99]}
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt0133093", "title": "The Matrix"}],
+                                         threading.Event())
+
+    assert counts["added"] == 1
+    sent_movie = client.add_movie.call_args.args[0]
+    assert sent_movie["tags"] == [99]
+
+
+def test_sync_movies_tags_existing_untagged_item():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Already Have It", "tags": []}}
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = 99
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "Already Have It"}],
+                                         threading.Event())
+
+    assert counts["skipped_existing"] == 1
+    assert counts["tagged"] == 1
+    client.update_movie.assert_called_once_with({"id": 501, "title": "Already Have It", "tags": [99]})
+
+
+def test_sync_movies_does_not_retag_already_tagged_item():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Already Have It", "tags": [99]}}
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = 99
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "Already Have It"}],
+                                         threading.Event())
+
+    assert counts["skipped_existing"] == 1
+    assert counts["tagged"] == 0
+    client.update_movie.assert_not_called()
+
+
+def test_sync_movies_dry_run_would_tag_existing_item():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Already Have It", "tags": []}}
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = 99
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(dry_run=True),
+                                         [{"imdb": "tt1", "title": "Already Have It"}], threading.Event())
+
+    assert counts["would_tag"] == 1
+    client.update_movie.assert_not_called()
+
+
+def test_sync_movies_tag_put_failure_does_not_abort_cycle():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {"tt1": {"id": 501, "title": "Already Have It", "tags": []}}
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.return_value = 99
+    client.update_movie.side_effect = RuntimeError("boom")
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt1", "title": "Already Have It"}],
+                                         threading.Event())
+
+    assert counts["skipped_existing"] == 1
+    assert counts["tagged"] == 0
+
+
+def test_sync_movies_tag_resolution_failure_still_allows_add():
+    client = MagicMock()
+    client.get_library_by_imdb.return_value = {}
+    client.get_excluded_tmdb_ids.return_value = set()
+    client.resolve_quality_profile_id.return_value = 4
+    client.resolve_root_folder_path.return_value = "/media/Movies"
+    client.get_or_create_tag_id.side_effect = RuntimeError("tag api down")
+    client.lookup_by_imdb.return_value = {"title": "The Matrix", "tmdbId": 603, "tags": []}
+    client.add_movie.return_value = {"id": 42, "title": "The Matrix", "tmdbId": 603, "tags": []}
+    with patch.object(arr_sync, "RadarrClient", lambda url, key: client):
+        counts = arr_sync._sync_movies(_base_config(), [{"imdb": "tt0133093", "title": "The Matrix"}],
+                                         threading.Event())
+
+    assert counts["added"] == 1
+    sent_movie = client.add_movie.call_args.args[0]
+    assert sent_movie["tags"] == []
 
 
 def test_run_sync_splits_movie_and_tv_items(monkeypatch):
