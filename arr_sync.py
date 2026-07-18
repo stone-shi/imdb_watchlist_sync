@@ -114,8 +114,20 @@ class RadarrClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_library_imdb_ids(self) -> set:
-        return {m["imdbId"] for m in self._get("/movie") if m.get("imdbId")}
+    def _put(self, path: str, payload: dict):
+        resp = requests.put(f"{self.base_url}/api/v3{path}", headers=self.headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_library_by_imdb(self) -> dict:
+        return {m["imdbId"]: m for m in self._get("/movie") if m.get("imdbId")}
+
+    def get_or_create_tag_id(self, label: str) -> Optional[int]:
+        for tag in self._get("/tag"):
+            if tag.get("label", "").lower() == label.lower():
+                return tag["id"]
+        created = self._post("/tag", {"label": label})
+        return created["id"]
 
     def get_excluded_tmdb_ids(self) -> set:
         return {e["tmdbId"] for e in self._get("/exclusions") if e.get("tmdbId")}
@@ -151,6 +163,9 @@ class RadarrClient:
         payload["minimumAvailability"] = minimum_availability
         payload["addOptions"] = {"searchForMovie": search_on_add}
         return self._post("/movie", payload)
+
+    def update_movie(self, movie: dict) -> dict:
+        return self._put(f"/movie/{movie['id']}", movie)
 
 
 class SonarrClient:

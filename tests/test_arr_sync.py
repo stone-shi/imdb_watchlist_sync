@@ -113,14 +113,48 @@ def _fake_response(json_data, status=200, raise_exc=None):
     return resp
 
 
-def test_radarr_get_library_imdb_ids():
+def test_radarr_get_library_by_imdb():
     client = arr_sync.RadarrClient("https://radarr.example.com", "key")
-    movies = [{"imdbId": "tt1"}, {"imdbId": "tt2"}, {"title": "no imdb id"}]
+    movies = [{"id": 1, "imdbId": "tt1", "tags": []}, {"id": 2, "imdbId": "tt2", "tags": [5]},
+              {"id": 3, "title": "no imdb id"}]
     with patch("arr_sync.requests.get", return_value=_fake_response(movies)) as mock_get:
-        result = client.get_library_imdb_ids()
-    assert result == {"tt1", "tt2"}
+        result = client.get_library_by_imdb()
+    assert result == {"tt1": movies[0], "tt2": movies[1]}
     mock_get.assert_called_once_with(
         "https://radarr.example.com/api/v3/movie", headers={"X-Api-Key": "key"}, timeout=30)
+
+
+def test_radarr_get_or_create_tag_id_returns_existing_tag():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    tags = [{"id": 1, "label": "other"}, {"id": 7, "label": "IMDB_Watchlist"}]
+    with patch("arr_sync.requests.get", return_value=_fake_response(tags)):
+        with patch("arr_sync.requests.post") as mock_post:
+            result = client.get_or_create_tag_id("imdb_watchlist")
+    assert result == 7
+    mock_post.assert_not_called()
+
+
+def test_radarr_get_or_create_tag_id_creates_missing_tag():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    with patch("arr_sync.requests.get", return_value=_fake_response([])):
+        with patch("arr_sync.requests.post",
+                    return_value=_fake_response({"id": 9, "label": "imdb_watchlist"})) as mock_post:
+            result = client.get_or_create_tag_id("imdb_watchlist")
+    assert result == 9
+    mock_post.assert_called_once_with(
+        "https://radarr.example.com/api/v3/tag", headers={"X-Api-Key": "key"},
+        json={"label": "imdb_watchlist"}, timeout=30)
+
+
+def test_radarr_update_movie_puts_full_payload():
+    client = arr_sync.RadarrClient("https://radarr.example.com", "key")
+    movie = {"id": 501, "title": "Already Have It", "tags": [7]}
+    with patch("arr_sync.requests.put", return_value=_fake_response(movie)) as mock_put:
+        result = client.update_movie(movie)
+    assert result == movie
+    mock_put.assert_called_once_with(
+        "https://radarr.example.com/api/v3/movie/501", headers={"X-Api-Key": "key"},
+        json=movie, timeout=30)
 
 
 def test_radarr_get_excluded_tmdb_ids():
